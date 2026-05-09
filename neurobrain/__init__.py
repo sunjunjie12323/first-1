@@ -10,6 +10,8 @@ from .core.amygdala import Amygdala, EmotionType
 from .memory.working_memory import WorkingMemory
 from .memory.short_term_memory import ShortTermMemory
 from .memory.long_term_memory import LongTermMemory
+from .memory.dialog_memory import DialogMemory
+from .memory.thinking_memory import ThinkingMemory
 from .neurons.synapse import Synapse, SynapticPlasticity, SynapseType, PlasticityRule
 from .neurons.neuron import Neuron, NeuronCluster, NeuronType
 from .learning.hebbian import HebbianLearning, HebbianVariant
@@ -17,7 +19,7 @@ from .learning.stdp import STDP, STDPVariant
 from .training.simulator import BrainSimulator, SimulationConfig
 from .training.reinforcement import ReinforcementTrainer, TrainerConfig, RLAlgorithm
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __all__ = [
     "Brain",
     "BrainConfig",
@@ -29,6 +31,8 @@ __all__ = [
     "WorkingMemory",
     "ShortTermMemory",
     "LongTermMemory",
+    "DialogMemory",
+    "ThinkingMemory",
     "Synapse",
     "SynapticPlasticity",
     "SynapseType",
