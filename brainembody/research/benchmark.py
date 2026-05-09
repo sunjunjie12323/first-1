@@ -530,12 +530,22 @@ class ExperimentRunner:
         for config in ABLATION_CONFIGS:
             print(f"\n评估 {config.name}...")
 
-            system = PHMEGMemory(embedding_dim=self.embedder.embedding_dim)
+            system = PHMEGMemory(
+                embedding_dim=self.embedder.embedding_dim,
+                embedder=self.embedder,
+                enable_pmp=config.enable_pmp,
+                enable_esg=config.enable_esg,
+                enable_hr=config.enable_hr,
+                enable_scsr=config.enable_scsr,
+                enable_faf=config.enable_faf
+            )
 
             id_mapping = self._load_dataset_into_system(system, dataset)
 
             if config.enable_scsr:
                 system.sleep_consolidate()
+                surviving_ids = set(system.memories.keys())
+                id_mapping = {k: v for k, v in id_mapping.items() if v in surviving_ids}
 
             retrieval_results = self._evaluate_system(system, dataset, id_mapping)
             metrics = self.metrics_calc.compute_all_metrics(retrieval_results)

@@ -491,7 +491,7 @@ class SleepConsolidator:
     def __init__(
         self,
         sws_threshold: float = 0.7,
-        shy_threshold: float = 0.05,
+        shy_threshold: float = 0.01,
         schema_min_episodes: int = 2
     ):
         self.sws_threshold = sws_threshold
@@ -616,26 +616,19 @@ class SleepConsolidator:
         memories: Dict[str, SynapticMemory]
     ) -> Dict[str, SynapticMemory]:
         """
-        SHY阶段：突触稳态，按比例缩减并修剪
+        SHY阶段：突触稳态，按比例缩减（保留所有记忆，只降权）
         """
         if not memories:
             return memories
 
         total_strength = sum(m.consolidation_strength for m in memories.values())
-        target_strength = total_strength * 0.8
+        target_strength = total_strength * 0.9
 
-        pruned = {}
         for mem_id, memory in memories.items():
             memory.consolidation_strength *= (target_strength / total_strength)
-
-            if memory.consolidation_strength < self.shy_threshold:
-                if memory.importance < 0.3:
-                    continue
-
             memory.consolidation_strength = min(1.0, memory.consolidation_strength)
-            pruned[mem_id] = memory
 
-        return pruned
+        return memories
 
     def _cluster_embeddings(
         self,
@@ -719,7 +712,7 @@ class AdaptiveForgetter:
 
     def __init__(
         self,
-        base_decay_rate: float = 0.02,
+        base_decay_rate: float = 0.005,
         gamma: float = 0.95,
         recency_weight: float = 0.3,
         frequency_weight: float = 0.25,
@@ -785,7 +778,7 @@ class AdaptiveForgetter:
         self,
         memories: Dict[str, SynapticMemory],
         schemas: Dict[str, SchemaNode],
-        deletion_threshold: float = 0.05
+        deletion_threshold: float = 0.01
     ) -> Dict[str, SynapticMemory]:
         """应用适应性遗忘"""
         current_time = datetime.now().timestamp()
@@ -799,7 +792,7 @@ class AdaptiveForgetter:
 
             pv = self.compute_predictive_value(memory, schemas, current_time)
 
-            if memory.importance < deletion_threshold and pv < 0.1:
+            if memory.importance < deletion_threshold and pv < 0.05:
                 self.forgotten_count += 1
                 continue
 
@@ -837,9 +830,18 @@ class PHMEGMemory:
     5. FaF-PV - 预测价值驱动适应性遗忘
     """
 
-    def __init__(self, embedding_dim: int = 768, embedder=None):
+    def __init__(self, embedding_dim: int = 768, embedder=None,
+                 enable_pmp: bool = True, enable_esg: bool = True,
+                 enable_hr: bool = True, enable_scsr: bool = True,
+                 enable_faf: bool = True):
         self.embedding_dim = embedding_dim
         self.embedder = embedder
+
+        self.enable_pmp = enable_pmp
+        self.enable_esg = enable_esg
+        self.enable_hr = enable_hr
+        self.enable_scsr = enable_scsr
+        self.enable_faf = enable_faf
 
         self.memories: Dict[str, SynapticMemory] = {}
         self.schemas: Dict[str, SchemaNode] = {}
@@ -895,10 +897,14 @@ class PHMEGMemory:
         embedding = self._embed(content)
         mem_id = memory_id if memory_id else self._generate_id(content)
 
-        # 创新2: ESG门控
-        encoding_strength, consolidation_prob = self.emotional_gate.gate_encoding(
-            embedding, emotional_state
-        )
+        # 创新2: ESG门控（可关闭）
+        if self.enable_esg:
+            encoding_strength, consolidation_prob = self.emotional_gate.gate_encoding(
+                embedding, emotional_state
+            )
+        else:
+            encoding_strength = 1.0
+            consolidation_prob = 0.8
 
         adjusted_importance = importance * encoding_strength
 
@@ -953,9 +959,9 @@ class PHMEGMemory:
         """
         query_embedding = self._embed(query)
 
-        # 创新1: PMP预测性预取
+        # 创新1: PMP预测性预取（可关闭）
         prefetch_results = []
-        if use_prefetch and self.current_trajectory:
+        if self.enable_pmp and use_prefetch and self.current_trajectory:
             memory_index = {k: v.embedding for k, v in self.memories.items()}
             prefetch_results = self.prefetcher.predict_needed_memories(
                 self.current_trajectory, memory_index
@@ -972,13 +978,16 @@ class PHMEGMemory:
                 semantic_sim = 0.0
 
             prefetch_bonus = 0.0
-            if use_prefetch and mem_id in self.prefetcher.prefetch_buffer:
-                prefetch_bonus = 0.1
+            if self.enable_pmp and use_prefetch and mem_id in self.prefetcher.prefetch_buffer:
+                prefetch_bonus = 0.05
+
+            importance_bonus = min(0.1, memory.importance * 0.05)
+            pv_bonus = min(0.1, memory.predictive_value * 0.05)
 
             combined_score = (
-                semantic_sim * 0.5 +
-                memory.importance * 0.2 +
-                memory.predictive_value * 0.2 +
+                semantic_sim * 0.8 +
+                importance_bonus +
+                pv_bonus +
                 prefetch_bonus
             )
 
@@ -988,8 +997,8 @@ class PHMEGMemory:
 
         results = []
         for score, mem_id, memory in scores[:top_k]:
-            # 创新3: HR再巩固
-            if reconsolidate:
+            # 创新3: HR再巩固（可关闭）
+            if self.enable_hr and reconsolidate:
                 memory = self.reconsolidator.reconsolidate(
                     memory, query_embedding, self.schemas, self.current_emotional_state
                 )
@@ -1016,22 +1025,18 @@ class PHMEGMemory:
 
     def sleep_consolidate(self):
         """
-        睡眠巩固（创新：SCSR三阶段压缩）
-
-        与传统巩固的区别：
-        - 传统: 强化重要记忆，衰减不重要的
-        - SCSR: 生成新的语义知识，实现知识抽象
+        睡眠巩固（创新：SCSR三阶段压缩 + FaF-PV适应性遗忘）
         """
-        self.memories, self.schemas = self.sleep_consolidator.consolidate(
-            self.memories, self.schemas
-        )
+        if self.enable_scsr:
+            self.memories, self.schemas = self.sleep_consolidator.consolidate(
+                self.memories, self.schemas
+            )
 
-        # 创新5: FaF-PV适应性遗忘
-        self.memories = self.adaptive_forgetter.apply_forgetting(
-            self.memories, self.schemas
-        )
+        if self.enable_faf:
+            self.memories = self.adaptive_forgetter.apply_forgetting(
+                self.memories, self.schemas
+            )
 
-        # 更新所有记忆的预测价值
         current_time = datetime.now().timestamp()
         for memory in self.memories.values():
             memory.predictive_value = self.adaptive_forgetter.compute_predictive_value(
