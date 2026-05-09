@@ -837,8 +837,9 @@ class PHMEGMemory:
     5. FaF-PV - 预测价值驱动适应性遗忘
     """
 
-    def __init__(self, embedding_dim: int = 768):
+    def __init__(self, embedding_dim: int = 768, embedder=None):
         self.embedding_dim = embedding_dim
+        self.embedder = embedder
 
         self.memories: Dict[str, SynapticMemory] = {}
         self.schemas: Dict[str, SchemaNode] = {}
@@ -853,12 +854,16 @@ class PHMEGMemory:
         self.current_trajectory: Optional[TaskTrajectory] = None
 
         self.operation_log: List[Dict] = []
+        self._id_counter = 0
 
     def _generate_id(self, content: str) -> str:
-        return hashlib.md5(f"{content}_{datetime.now().timestamp()}".encode()).hexdigest()[:12]
+        self._id_counter += 1
+        return f"phmeg_{self._id_counter}"
 
     def _embed(self, text: str) -> np.ndarray:
-        """文本向量化 - 基于词袋的语义感知嵌入"""
+        """文本向量化 - 支持外部嵌入模型"""
+        if self.embedder is not None:
+            return self.embedder.embed(text)
         base = np.zeros(self.embedding_dim)
         words = text.lower().split()
         for i, word in enumerate(words[:self.embedding_dim]):
@@ -874,7 +879,8 @@ class PHMEGMemory:
         content: str,
         emotional_state: Optional[EmotionalState] = None,
         is_episodic: bool = True,
-        importance: float = 1.0
+        importance: float = 1.0,
+        memory_id: Optional[str] = None
     ) -> str:
         """
         编码新记忆（创新：ESG门控编码）
@@ -887,7 +893,7 @@ class PHMEGMemory:
             emotional_state = self.current_emotional_state
 
         embedding = self._embed(content)
-        mem_id = self._generate_id(content)
+        mem_id = memory_id if memory_id else self._generate_id(content)
 
         # 创新2: ESG门控
         encoding_strength, consolidation_prob = self.emotional_gate.gate_encoding(
