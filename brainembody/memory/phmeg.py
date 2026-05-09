@@ -822,18 +822,21 @@ class PHMEGMemory:
 
     完整的论文级创新记忆系统
 
-    整合5大创新：
+    整合7大创新：
     1. PMP - 预测性记忆预取
     2. ESG - 情感突触门控
     3. HR  - 层次化再巩固
     4. SCSR - 睡眠重放模式压缩
     5. FaF-PV - 预测价值驱动适应性遗忘
+    6. AMO  - 自适应记忆编排
+    7. CMC  - 持续记忆巩固
     """
 
     def __init__(self, embedding_dim: int = 768, embedder=None,
                  enable_pmp: bool = True, enable_esg: bool = True,
                  enable_hr: bool = True, enable_scsr: bool = True,
-                 enable_faf: bool = True):
+                 enable_faf: bool = True, enable_amo: bool = False,
+                 enable_cmc: bool = False):
         self.embedding_dim = embedding_dim
         self.embedder = embedder
 
@@ -842,6 +845,8 @@ class PHMEGMemory:
         self.enable_hr = enable_hr
         self.enable_scsr = enable_scsr
         self.enable_faf = enable_faf
+        self.enable_amo = enable_amo
+        self.enable_cmc = enable_cmc
 
         self.memories: Dict[str, SynapticMemory] = {}
         self.schemas: Dict[str, SchemaNode] = {}
@@ -857,6 +862,16 @@ class PHMEGMemory:
 
         self.operation_log: List[Dict] = []
         self._id_counter = 0
+
+        # AMO 和 CMC 模块
+        self.orchestrator = None
+        self.continuous_consolidator = None
+        if self.enable_amo:
+            from .amo_cmc import AdaptiveMemoryOrchestrator
+            self.orchestrator = AdaptiveMemoryOrchestrator(embedding_dim)
+        if self.enable_cmc:
+            from .amo_cmc import ContinuousMemoryConsolidator
+            self.continuous_consolidator = ContinuousMemoryConsolidator()
 
     def _generate_id(self, content: str) -> str:
         self._id_counter += 1
@@ -951,21 +966,24 @@ class PHMEGMemory:
         reconsolidate: bool = True
     ) -> List[Dict]:
         """
-        检索记忆（创新：PMP预取 + HR再巩固）
+        检索记忆（创新：PMP预取 + HR再巩固 + AMO场景自适应 + CMC微巩固）
 
         与传统RAG的区别：
         - RAG: 查询→相似度→返回
-        - PHMEG: 预取→相似度+情感+预测价值→再巩固→返回
+        - PHMEG: 预取→AMO场景检测→相似度+情感+预测价值→CMC微巩固→再巩固→返回
         """
         query_embedding = self._embed(query)
 
-        # 创新1: PMP预测性预取（可关闭）
-        prefetch_results = []
-        if self.enable_pmp and use_prefetch and self.current_trajectory:
-            memory_index = {k: v.embedding for k, v in self.memories.items()}
-            prefetch_results = self.prefetcher.predict_needed_memories(
-                self.current_trajectory, memory_index
+        # 创新6: AMO场景检测（如果启用）
+        context = None
+        if self.enable_amo and self.orchestrator:
+            from .amo_cmc import MemoryContext
+            recent_accesses = [m.last_accessed for m in list(self.memories.values())[-10:]]
+            emotional_states = [self.current_emotional_state]
+            context = self.orchestrator.detect_context(
+                query, len(self.memories), recent_accesses, emotional_states
             )
+            optimal_config = self.orchestrator.select_optimal_config(context)
 
         # 语义检索
         scores = []
@@ -997,12 +1015,22 @@ class PHMEGMemory:
 
         results = []
         for score, mem_id, memory in scores[:top_k]:
-            # 创新3: HR再巩固（可关闭）
-            if self.enable_hr and reconsolidate:
+            # 创新3: HR再巩固（可关闭，可被AMO覆盖）
+            hr_enabled = self.enable_hr
+            if context is not None and optimal_config:
+                hr_enabled = optimal_config.enable_hr
+
+            if hr_enabled and reconsolidate:
                 memory = self.reconsolidator.reconsolidate(
                     memory, query_embedding, self.schemas, self.current_emotional_state
                 )
                 self.memories[mem_id] = memory
+
+            # 创新7: CMC持续微巩固（如果启用）
+            if self.enable_cmc and self.continuous_consolidator:
+                self.continuous_consolidator.micro_consolidate(
+                    memory, query_embedding, self.current_emotional_state
+                )
 
             results.append({
                 "id": mem_id,
