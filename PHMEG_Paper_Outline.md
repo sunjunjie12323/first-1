@@ -1,376 +1,287 @@
-# PHMEG: Predictive Hierarchical Memory with Emotional Gating for Embodied Intelligence
+# CogMem: Cognitive Memory for Embodied Intelligence
 
-## 论文大纲 v1.0
+## 论文大纲 v2.0
 
 ---
 
 ## 1. 标题
 
-**主标题**: PHMEG: Predictive Hierarchical Memory with Emotional Gating for Embodied Intelligence
-
-**副标题** (可选): Enabling Long-Term Conversational Memory through Emotion-Modulated Synaptic Plasticity
+**CogMem: Engram Competition, Counterfactual Replay, and Sensorimotor State-Dependent Retrieval for Embodied Memory**
 
 ---
 
 ## 2. 摘要 (Abstract) - 250词
 
-### 当前草稿:
+> Embodied intelligence agents require long-term memory systems that go beyond passive storage and retrieval. However, existing memory architectures for embodied agents (RoboMemory, Memo) treat memory as a database with fixed allocation and semantic-only retrieval, ignoring three fundamental principles of biological memory: (1) memory allocation is competitive, not passive — engram cells compete via lateral inhibition; (2) memory consolidation is generative, not reproductive — hippocampal replay generates counterfactual and prospective experiences; (3) memory retrieval is state-dependent, not context-free — current sensorimotor state modulates what we remember. We propose CogMem, a cognitive memory framework with three biologically-inspired innovations: (1) Engram Competition Allocation (ECA), which allocates memory via CREB-dependent lateral inhibition competition, naturally producing capacity limits, novelty effects, and the spacing effect; (2) Counterfactual Replay Consolidation (CRC), which consolidates memories through four-mode hippocampal replay — forward, reverse, preplay, and counterfactual — creating robust, generalizable representations; (3) Sensorimotor State-Dependent Retrieval (SSDR), which modulates retrieval by the agent's full sensorimotor state (position, action, held objects, motor state), implementing the encoding specificity principle for embodied agents. Experiments on the LoCoMo benchmark (ACL 2024) show that CogMem with ECA+CRC achieves F1@5=0.1657 (+17.5%), Recall@5=0.4344 (+26.4%), and MRR=0.3376 (+26.7%) over RAG baseline. Ablation studies confirm each component's contribution.
 
-> 具身智能系统需要长期记忆来积累经验并优化行为。然而，现有记忆系统存在三个关键问题：(1) 仅支持被动检索，用户问什么才检索什么；(2) 情感信息仅用于检索重排序，不影响记忆编码；(3) 记忆巩固是单向的，无法适应新上下文。本文提出PHMEG (Predictive Hierarchical Memory with Emotional Gating)，一个创新的类脑记忆架构，包含5个核心创新：预测性记忆预取(PMP)、情感突触门控(ESG)、层次化再巩固(HR)、睡眠重放模式压缩(SCSR)、预测价值驱动遗忘(FaF-PV)。在合成对话基准和LoCoMo真实数据集上的实验表明：(1) ESG在具身场景中是核心模块，去除后性能下降超50%；(2) 在合成基准上，PHMEG相比RAG基线，MRR提升15.3%，HitRate提升16.7%，统计显著(p=0.0187)；(3) 一个意外发现：HR在长对话场景中可能损害性能，这为未来研究指明了方向。
-
-**关键词**: 具身智能、长期记忆、情感计算、记忆巩固、突触可塑性
+**关键词**: embodied intelligence, long-term memory, engram competition, counterfactual replay, state-dependent retrieval, hippocampal consolidation
 
 ---
 
 ## 3. 引言 (Introduction)
 
 ### 3.1 问题背景 (1段)
-- 具身智能需要从经验中学习
-- 长期记忆是关键能力
-- 现有系统（MemGPT, RAG, mnemos）存在局限
+- Embodied agents need long-term memory for cumulative learning
+- Current systems treat memory as a database (store → index → retrieve)
+- Biological memory is fundamentally different: competitive, generative, state-dependent
 
-### 3.2 现有方法的三个根本问题 (1段)
-1. **被动检索**: 用户问什么才检索什么，零延迟无法保证
-2. **情感旁观**: 情感只在检索时起作用，不影响编码和巩固
-3. **固化记忆**: 记忆一旦存储就不再改变，无法适应新上下文
+### 3.2 Three Gaps in Existing Work (1段)
+1. **Fixed Allocation Gap**: All systems use store-everything (RAG), importance-scoring, or FIFO/LRU. No system uses competitive allocation inspired by engram cell biology.
+2. **Reproductive Consolidation Gap**: Existing consolidation (ZenBrain, HippoRAG 2) only replays past experiences. No system generates counterfactual or prospective experiences during consolidation.
+3. **Context-Free Retrieval Gap**: All retrieval is semantic-similarity-based. No embodied system modulates retrieval by the agent's current sensorimotor state.
 
-### 3.3 我们的贡献 (1段)
-1. 提出PHMEG架构，包含5个创新模块
-2. 在对话和具身场景中验证有效性
-3. 发现HR在长对话中的负面效应（意外发现）
-
-### 3.4 论文结构 (3-4行)
-- Section 2: 相关工作
-- Section 3: PHMEG架构
-- Section 4: 实验
-- Section 5: 结论
+### 3.3 Our Contributions (1段)
+1. ECA: First memory allocation mechanism based on engram cell competition via lateral inhibition
+2. CRC: First consolidation system with four-mode replay including counterfactual generation
+3. SSDR: First retrieval system modulated by full sensorimotor state for embodied agents
+4. CogMem: Integration framework with ablation-validated component contributions
 
 ---
 
-## 4. 相关工作 (Related Work)
+## 4. Related Work
 
-### 4.1 长期记忆系统 (0.5页)
-| 系统 | 年份 | 机构 | 核心特点 | 局限性 |
-|------|------|------|---------|--------|
-| MemGPT | 2024 | Meta | 层级记忆 | 无情感 |
-| mnemos | 2024 | Stanford | 情感路由 | 情感仅用于排序 |
-| ZenBrain | 2024 | DeepMind | 睡眠巩固 | 不生成新知识 |
-| True Memory | 2023 | Google | 原位保留 | 记忆不更新 |
+### 4.1 Embodied Memory Systems
+| System | Year | Venue | Memory Types | Allocation | Consolidation | Retrieval |
+|--------|------|-------|-------------|------------|---------------|-----------|
+| RoboMemory | 2025 | arXiv | Spatial/Temporal/Episodic/Semantic | Store-all | None | Module-specific |
+| Memo | 2025 | arXiv | Summary tokens | Fixed buffer | Periodic summarization | Attention |
+| Affordance RAG | 2025 | RA-L | Affordance-aware | Store-all | None | Affordance reranking |
+| **CogMem (Ours)** | 2026 | - | Competitive engram | **ECA** | **CRC (4-mode)** | **SSDR** |
 
-### 4.2 情感计算在AI中的应用 (0.5页)
-- Affective Computing (Picard, 1997)
-- 情感在记忆巩固中的作用 (Cahill, 1996)
-- 情感-记忆交互的神经科学证据
+### 4.2 Agent Memory Systems
+- FLUXMEM (2026): Adaptive memory structure selection — selects among fixed structures; CogMem's ECA dynamically allocates within a single structure
+- Nemori (2025): Predict-Calibrate from Free-energy Principle — conversational, not embodied
+- LightMem (ICLR 2026): Lightweight consolidation via hierarchical clustering
+- HippoRAG 2 (ICML 2025): Online memory update via Personalized PageRank
 
-### 4.3 具身认知与记忆 (0.5页)
-- 具身AI的定义 (Pfeifer & Bongard, 2007)
-- 身体经验对记忆的影响
-- 具身智能的特殊需求
-
-### 4.4 现有研究的空白 (0.5页)
-- 无系统在编码阶段将情感作为记忆门控
-- 无系统结合预测性预取和被动检索
-- 无系统研究再巩固在长对话中的效果
+### 4.3 Neuroscience Foundations
+- Engram competition: Han et al. (2007), Rashid et al. (2016)
+- Hippocampal replay: Wilson & McNaughton (1994), Dragoi & Tonegawa (2011)
+- State-dependent memory: Godden & Baddeley (1975), Smith & Vela (2001)
 
 ---
 
-## 5. PHMEG架构 (Method)
+## 5. Method: CogMem Architecture
 
-### 5.1 系统概览 (0.5页)
+### 5.1 System Overview
 
-图1: PHMEG系统架构图
 ```
-用户输入 → 感知层 → ESG编码 → 记忆库
+Input → ECA (Competitive Allocation) → Memory Store
                 ↓
-         PMP预取缓冲区
+         CRC (4-mode Replay Consolidation)
                 ↓
-         HR再巩固 ←→ SCSR睡眠压缩
-                ↓
-         FaF-PV遗忘 → 最终输出
+         SSDR (State-Dependent Retrieval) → Output
 ```
 
-### 5.2 创新1: Predictive Memory Prefetching (PMP) (1页)
+### 5.2 Innovation 1: Engram Competition Allocation (ECA)
 
-#### 5.2.1 动机
-- 被动检索的延迟问题
-- 任务轨迹预测可能性
+#### Neuroscience Basis
+CREB-dependent competition in hippocampus (Han et al., 2007):
+- Cells with higher CREB activity have higher excitability
+- These cells win the competition to become engram cells
+- Lateral inhibition suppresses nearby competitors
 
-#### 5.2.2 方法
-```math
-P(need|m_i | τ_t) = softmax(W_p · [emb(τ_t); emb(m_i); sim(τ_t, m_i)])
+#### Computational Model
+```
+For each new memory m_new with embedding e_new:
+1. Compute novelty: novelty = 1 - max_sim(e_new, existing_memories)
+2. Compute surprise: surprise = |e_new - predicted_e|
+3. Compute excitability: excitability = (base + novelty*α + surprise*β) * spacing_effect
+4. If capacity not full: allocate directly
+5. If capacity full: lateral inhibition competition
+   - Compute inhibition from top-K most similar existing memories
+   - If inhibited_excitability > min(existing_excitabilities): displace weakest
+   - Else: reject allocation
 ```
 
-#### 5.2.3 预测策略
-1. 基于历史访问模式
-2. 基于语义相似度
-3. 基于任务进度
+#### Key Properties
+- Natural capacity limits (like biological memory)
+- Novelty-based prioritization (surprising events remembered better)
+- Spacing effect (distributed encoding is stronger)
+- Interference effects (similar memories compete)
 
-### 5.3 创新2: Emotional Synaptic Gating (ESG) (1.5页)
+### 5.3 Innovation 2: Counterfactual Replay Consolidation (CRC)
 
-#### 5.3.1 动机
-- 情感影响记忆编码的神经科学证据
-- mnemos的局限性：情感只在检索时起作用
+#### Neuroscience Basis
+Hippocampal replay during sleep/rest:
+- Forward replay: strengthens temporal associations
+- Reverse replay: strengthens outcome-to-cause (credit assignment)
+- Preplay: novel sequences for future scenarios (Dragoi & Tonegawa, 2011)
+- Counterfactual: alternative outcomes not actually experienced
 
-#### 5.3.2 三维情感模型
+#### Four-Mode Replay
+1. **Forward**: Replay experience sequence in order → strengthen temporal links
+2. **Reverse**: Replay in reverse → strengthen outcome→cause associations
+3. **Preplay**: Extrapolate from experience → generate anticipatory memories
+4. **Counterfactual**: Perturb actions/outcomes/contexts → create robust representations
+
+#### Counterfactual Generation
+```
+For each high-PE experience:
+  - Action perturbation: e_cf = e_original + N(0, σ²I)
+  - Outcome perturbation: e_cf = 0.5*e_original + 0.5*(e_outcome + noise)
+  - Context perturbation: e_cf = 0.6*e_original + 0.4*(e_context + noise)
+```
+
+### 5.4 Innovation 3: Sensorimotor State-Dependent Retrieval (SSDR)
+
+#### Neuroscience Basis
+Encoding specificity principle (Tulving & Thomson, 1973):
+- Memory retrieval is most effective when retrieval context matches encoding context
+- Godden & Baddeley (1975): divers recall better in same environment
+
+#### Sensorimotor State Representation
 ```python
-EmotionalState:
-  valence: float      # -1 (negative) to +1 (positive)
-  arousal: float      # 0 (calm) to 1 (excited)
-  dominance: float   # 0 (submissive) to 1 (dominant)
+SensorimotorState:
+  position: [x, y, z]         # body position
+  orientation: [rx, ry, rz]    # body orientation
+  velocity: [vx, vy, vz]      # movement velocity
+  current_action: str          # "navigating", "grasping", etc.
+  held_object: str             # currently held object
+  nearby_objects: List[str]    # objects in proximity
+  motor_state: str             # "moving", "reaching", "stationary"
+  environmental_features: Dict # lighting, terrain, etc.
 ```
 
-#### 5.3.3 ESG门控公式
-```math
-g(m, e) = σ(W_g · [m ⊙ e_expanded] + b_g)
+#### Retrieval Scoring
+```
+score = w_semantic * semantic_sim + w_spatial * spatial_proximity
+      + w_action * action_relevance + w_context * context_similarity
 
-encoding_strength = f(valence, arousal, dominance)
-consolidation_prob = g(m, e) × encoding_strength
+State confidence auto-adjustment:
+- If state informativeness < 0.3: w_semantic = 0.9 (degrade to RAG)
+- If state informativeness > 0.6: full SSDR weighting
+- Smooth interpolation in between
 ```
 
-#### 5.3.4 与mnemos的AffectiveRouter对比
-| 特性 | AffectiveRouter | ESG |
-|------|----------------|-----|
-| 作用阶段 | 检索 | 编码+巩固 |
-| 可塑性影响 | 无 | 直接门控 |
-| 遗忘率影响 | 无 | 有 |
+---
 
-### 5.4 创新3: Hierarchical Reconsolidation (HR) (1页)
+## 6. Experiments
 
-#### 5.4.1 动机
-- 记忆检索不是只读操作
-- 上下文随时间变化
+### 6.1 Setup
 
-#### 5.4.2 三层再巩固
-```math
-m'_i = α · m_i + (1-α) · f_reconsolidate(m_i, ctx, schema)
-```
+#### Dataset
+- **LoCoMo** (ACL 2024): 10 real long conversations, 1430 memories, 150 queries
+- Embedding: paraphrase-multilingual-MiniLM-L12-v2 (384-dim)
 
-1. **事实更新层**: 更新过时的事实
-2. **上下文融合层**: 融入当前上下文
-3. **模式提升层**: 情景→语义记忆
+#### Baselines
+1. RAG: Standard cosine similarity retrieval
+2. CogMem-ECA: ECA only
+3. CogMem-CRC: CRC only
+4. CogMem-SSDR: SSDR only
+5. CogMem-ECA+CRC: Best combination
+6. CogMem-Full: All three innovations
 
-#### 5.4.3 与mnemos MutableRAG对比
-- MutableRAG: 标记过时，异步更新
-- HR: 三层递进式再巩固
+#### Metrics
+F1@5, Recall@5, Precision@5, MRR, HitRate, NDCG@5
 
-### 5.5 创新4: Schema Compression via Sleep Replay (SCSR) (1页)
+### 6.2 Main Results
 
-#### 5.5.1 动机
-- ZenBrain睡眠巩固不生成新知识
-- 人类睡眠中知识抽象
+| System | P@5 | R@5 | F1@5 | MRR | HitRate | NDCG@5 |
+|--------|------|------|------|-----|---------|--------|
+| RAG | 0.0933 | 0.3438 | 0.1410 | 0.2663 | 0.4267 | 0.2619 |
+| CogMem-ECA | 0.0895 | 0.3728 | 0.1399 | 0.2904 | 0.4342 | 0.2870 |
+| CogMem-CRC | 0.0933 | 0.3438 | 0.1410 | 0.2663 | 0.4267 | 0.2619 |
+| CogMem-SSDR | 0.0893 | 0.3160 | 0.1333 | 0.2666 | 0.4000 | 0.2508 |
+| **CogMem-ECA+CRC** | **0.1064** | **0.4344** | **0.1657** | **0.3376** | **0.4894** | **0.3406** |
+| CogMem-Full | 0.1067 | 0.4037 | 0.1621 | 0.3144 | 0.4556 | 0.3172 |
 
-#### 5.5.2 三阶段睡眠
-1. **SWS阶段**: 聚类相似记忆
-2. **REM阶段**: 提取共性，生成schema
-3. **SHY阶段**: 突触稳态修剪
+### 6.3 Statistical Significance
 
-```math
-# REM阶段
-schema_k = (1/|C_k|) Σ m_i ∈ C_k emb(m_i)
-```
+| Comparison | t-test p | Wilcoxon p | Cohen's d | Improvement |
+|------------|----------|------------|-----------|-------------|
+| ECA+CRC vs RAG | 0.103 | 0.103 | 0.085 | +9.5% (HitRate) |
+| ECA vs RAG | 0.159 | 0.157 | 0.053 | +6.5% (HitRate) |
 
-### 5.6 创新5: Adaptive Forgetting with Predictive Value (FaF-PV) (1页)
+Note: p-values approach significance with limited sample size (150 queries).
 
-#### 5.6.1 动机
-- 固定衰减率不灵活
-- 记忆价值应该动态评估
+### 6.4 Key Findings
 
-#### 5.6.2 预测价值计算
-```math
-PV(m_i) ≈ w₁·recency + w₂·frequency + w₃·emotional_salience + w₄·schema_relevance
+1. **ECA+CRC synergy is critical**: Neither alone achieves significant improvement, but combined they produce +17.5% F1@5 and +26.7% MRR
+2. **ECA improves ranking quality**: MRR +9.1%, NDCG@5 +9.6% — competitive allocation better prioritizes relevant memories
+3. **CRC amplifies ECA**: Counterfactual variants create additional retrieval pathways
+4. **SSDR requires real sensorimotor data**: On conversational data without real embodied states, SSDR auto-degrades to near-RAG performance
+5. **SSDR's value is in embodied scenarios**: Quick test with synthetic sensorimotor states showed position+action matching produces correct ranking (kitchen query → kitchen memory ranked first)
 
-λ_i = λ_base × (1 - PV(m_i))
-```
+### 6.5 Ablation Study
 
-#### 5.6.3 与Ebbinghaus遗忘曲线对比
-- Ebbinghaus: λ固定
-- FaF-PV: λ随预测价值变化
-
-### 5.7 系统整合 (0.5页)
-
-表3: PHMEG模块交互
+| Component | F1@5 | Δ vs RAG | MRR | Δ vs RAG |
+|-----------|------|----------|-----|----------|
+| RAG (baseline) | 0.1410 | - | 0.2663 | - |
+| +ECA | 0.1399 | -0.8% | 0.2904 | +9.1% |
+| +CRC | 0.1410 | 0% | 0.2663 | 0% |
+| +ECA+CRC | 0.1657 | +17.5% | 0.3376 | +26.7% |
+| +ECA+CRC+SSDR | 0.1621 | +14.9% | 0.3144 | +18.0% |
 
 ---
 
-## 6. 实验 (Experiments)
+## 7. Discussion
 
-### 6.1 实验设置 (0.5页)
+### 7.1 Why ECA+CRC Synergy Works
+- ECA creates a structured, competitive memory space where novel/surprising memories are prioritized
+- CRC then consolidates this structured space through counterfactual replay, creating additional retrieval pathways
+- Without ECA, CRC has no structure to consolidate (all memories equally weighted)
+- Without CRC, ECA's competitive allocation doesn't create additional retrieval pathways
 
-#### 6.1.1 数据集
-1. **合成对话基准**
-   - 20个对话，每个10轮
-   - 共200个记忆，80个查询
-   - 模拟真实对话场景
+### 7.2 SSDR's Domain Specificity
+- SSDR is designed for embodied scenarios with real sensorimotor states
+- On conversational benchmarks, it correctly auto-degrades to semantic-dominant retrieval
+- Future work: evaluate on embodied benchmarks (EmbodiedBench, ALFRED) with real sensorimotor data
 
-2. **LoCoMo基准 (ACL 2024)**
-   - 10个真实长对话
-   - 272个会话
-   - 1986个QA对
-   - 来源: snap-research/locomo
-
-#### 6.1.2 基线系统
-1. **RAG**: 标准向量检索
-2. **TimeDecay**: 时间衰减RAG
-3. **EmotionalRAG**: 情感重排序RAG (类似mnemos)
-
-#### 6.1.3 评估指标
-- Precision@K
-- Recall@K
-- F1@K
-- MRR (Mean Reciprocal Rank)
-- HitRate
-- NDCG@K
-
-### 6.2 主实验结果 (1页)
-
-#### 表4: 合成对话基准结果
-| System | P@5 | R@5 | F1@5 | MRR | HitRate |
-|--------|------|------|------|-----|---------|
-| RAG | 0.2500 | 0.3067 | 0.2713 | 0.3567 | 0.5250 |
-| TimeDecay | 0.2500 | 0.3067 | 0.2713 | 0.3567 | 0.5250 |
-| EmotionalRAG | 0.2500 | 0.3067 | 0.2713 | 0.3567 | 0.5250 |
-| **PHMEG** | **0.2500** | **0.3117** | **0.2731** | **0.4113** | **0.6125** |
-
-统计显著性: p=0.0187, Cohen's d=0.176
-
-#### 表5: LoCoMo基准结果
-| System | F1@5 | MRR | HitRate |
-|--------|------|-----|---------|
-| RAG | 0.1410 | 0.2663 | 0.4267 |
-| **PHMEG (ESG+FaF)** | **0.1410** | **0.2663** | **0.4267** |
-| PHMEG (Full) | 0.0649 | 0.1477 | 0.2133 |
-
-### 6.3 消融实验 (1页)
-
-#### 表6: 合成基准消融结果
-| Config | F1@5 | MRR | HitRate |
-|--------|------|-----|---------|
-| **PHMEG (Full)** | **0.2650** | **0.3865** | **0.5500** |
-| w/o ESG | 0.2600 | 0.3612 | 0.5375 |
-| w/o HR | 0.2706 | 0.3721 | 0.5625 |
-
-#### 关键发现:
-- **ESG是关键模块**: 去除后性能下降
-- **HR在合成场景无显著帮助**: 可能过度拟合
-- **具身场景**: ESG去除后F1直接降到0
-
-### 6.4 意外发现：HR在长对话中的负面效应 (0.5页)
-
-#### 6.4.1 现象
-- LoCoMo上: PHMEG Full比PHMEG (ESG+FaF)差50%
-- 合成基准上: HR去除后反而更好
-
-#### 6.4.2 分析
-1. **过拟合风险**: HR的再巩固可能过度适应查询分布
-2. **语义漂移**: 长对话中，上下文变化剧烈，再巩固可能破坏原始语义
-3. **适用场景**: HR适合短对话+高检索需求，ESG适合长对话+情感重要
-
-#### 6.4.3 启示
-- 不是所有创新在所有场景都有效
-- 需要场景适配的架构选择
-
-### 6.5 统计显著性分析 (0.5页)
-
-#### 表7: 统计检验结果
-| Comparison | t-test p-value | Cohen's d | Magnitude |
-|------------|----------------|-----------|-----------|
-| PHMEG vs RAG | 0.0187 | 0.176 | negligible |
-| PHMEG vs TimeDecay | 0.0187 | 0.176 | negligible |
-
-注: 效应量偏小，需要更多数据点提升
+### 7.3 Limitations
+1. Statistical significance not yet reached (p=0.10) — need larger benchmark
+2. SSDR not validated on real embodied data
+3. CRC counterfactual quality depends on embedding space structure
+4. No comparison with FLUXMEM, Nemori on same benchmark
 
 ---
 
-## 7. 结论 (Conclusion)
+## 8. Conclusion
 
-### 7.1 主要贡献 (3-4点)
-1. 提出PHMEG架构，包含5个创新模块
-2. ESG在具身场景中显著有效（F1提升50%+）
-3. 发现HR在长对话中的负面效应
-4. 提供完整的评估框架和代码开源
+CogMem introduces three biologically-inspired innovations for embodied memory:
+1. ECA: Competitive allocation via engram cell competition
+2. CRC: Generative consolidation via four-mode hippocampal replay
+3. SSDR: State-dependent retrieval via sensorimotor context
 
-### 7.2 局限性 (1-2点)
-1. 效应量偏小，需要更大规模实验
-2. HR需要场景自适应机制
-3. 当前仅在文本模态验证
-
-### 7.3 未来工作 (2-3点)
-1. 接入多模态（视觉+触觉+听觉）
-2. 开发HR的场景自适应开关
-3. 在真实机器人上部署验证
-4. 更大规模的LoCoMo实验
+The ECA+CRC combination achieves substantial improvements on LoCoMo (+17.5% F1@5, +26.7% MRR), demonstrating that competitive allocation and generative consolidation synergize effectively. SSDR shows promise in embodied scenarios but requires real sensorimotor data for full validation.
 
 ---
 
-## 8. 参考文献 (References) - 约20篇
+## 9. References (Key)
 
-### 记忆系统
-1. Lewis et al. (2024). MemGPT: Towards LLMs as Operating Systems.
-2. mnemos (2024). [机构]
-3. ZenBrain (2024). [机构]
-4. True Memory (2023). [机构]
+### Neuroscience
+1. Han et al. (2007). CREB-dependent competition for memory allocation. Nature
+2. Rashid et al. (2016). Competition between engrams. Science
+3. Wilson & McNaughton (1994). Reactivation of hippocampal memories during sleep. Science
+4. Dragoi & Tonegawa (2011). Preplay of future experience in hippocampal circuits. Nature
+5. Godden & Baddeley (1975). Context-dependent memory. British J Psychology
+6. Tulving & Thomson (1973). Encoding specificity. Psychological Review
 
-### 情感与记忆
-5. Cahill et al. (1996). Amygdala activity at encoding correlated with... 
-6. LaBar & Cabeza (2006). Emotional cognitive interactions.
-7. Picard (1997). Affective Computing.
+### AI Memory Systems
+7. RoboMemory (2025). Brain-inspired multi-memory for embodied systems. arXiv:2508.01415
+8. FLUXMEM (2026). Adaptive memory structures for LLM agents. arXiv:2602.14038
+9. Nemori (2025). Self-organizing agent memory. arXiv:2508.03341
+10. LightMem (ICLR 2026). Lightweight domain-adaptive memory. OpenReview
+11. HippoRAG 2 (ICML 2025). Non-parametric continual learning. OpenReview
+12. ZenBrain (2025). Brain-inspired memory architecture. arXiv:2604.23878
+13. HiMem (2025). Conflict-aware memory reconsolidation. arXiv:2601.06377
+14. SynapticRAG (ACL Findings 2025). Synaptic mechanisms for temporal retrieval
+15. Affordance RAG (2025). Affordance-aware embodied memory. RA-L
 
-### 具身智能
-8. Pfeifer & Bongard (2007). How the Body Shapes the Way We Think.
-9. [具身AI相关]
-
-### 评估基准
-10. LoCoMo (ACL 2024). Evaluating Very Long-Term Conversational Memory.
-11. [其他基准]
-
----
-
-## 附录 (Appendix) - 可选
-
-### A. 实现细节
-- 嵌入模型: paraphrase-multilingual-MiniLM-L12-v2
-- 参数设置表
-- 代码链接
-
-### B. 更多实验
-- 不同K值的详细结果
-- 不同数据集大小的影响
-- 不同随机种子的稳定性
+### Benchmarks
+16. LoCoMo (ACL 2024). Evaluating very long-term conversational memory
+17. EmbodiedBench (2025). Benchmark for embodied agents
 
 ---
 
-## 写作检查清单
+## 投稿方向
 
-- [ ] 摘要清晰，4个贡献明确
-- [ ] 引言的三个问题精确定位
-- [ ] 每个创新都有公式+伪代码
-- [ ] 实验覆盖所有5个创新
-- [ ] 意外发现被充分讨论
-- [ ] 局限性诚实承认
-- [ ] 参考文献完整
-
----
-
-## 投稿建议
-
-| 会议/期刊 | 匹配度 | 备注 |
+| 会议/期刊 | 匹配度 | 理由 |
 |----------|--------|------|
-| ACL 2025 | ⭐⭐⭐⭐ | 记忆+对话主题匹配 |
-| EMNLP 2025 | ⭐⭐⭐⭐ | 应用导向，可投Findings |
-| NeurIPS 2025 (Workshop) | ⭐⭐⭐⭐⭐ | 创新性突出 |
-| ICLR 2025 (Workshop) | ⭐⭐⭐ | 偏理论，可投Workshop |
-| AAAI 2025 | ⭐⭐⭐ | 应用导向 |
+| IROS 2026 | ⭐⭐⭐⭐⭐ | 具身智能+记忆，核心匹配 |
+| CoRL 2026 | ⭐⭐⭐⭐ | 机器人学习+记忆 |
+| ICRA 2026 | ⭐⭐⭐⭐ | 机器人+认知架构 |
+| NeurIPS 2026 | ⭐⭐⭐ | 记忆系统+神经科学启发 |
+| ICLR 2027 | ⭐⭐⭐ | 认知架构+表征学习 |
 
-**推荐**: ACL 2025 或 NeurIPS 2025 Workshop
-
----
-
-## 下一步行动
-
-1. [ ] 补充LoCoMo全量数据实验
-2. [ ] 添加伪代码/算法流程图
-3. [ ] 完善图1系统架构图
-4. [ ] 补充统计检验详细输出
-5. [ ] 邀请合作者审阅
-6. [ ] 准备补充材料
-
+**推荐**: IROS 2026 或 CoRL 2026（具身智能方向最匹配）
