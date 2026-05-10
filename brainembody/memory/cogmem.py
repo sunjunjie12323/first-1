@@ -192,9 +192,16 @@ class CogMemMemory:
             output = []
             for r in results:
                 mid = r["id"]
+                score = r["score"]
+
+                if self.eca is not None and mid in self.eca.cells:
+                    cell = self.eca.cells[mid]
+                    eca_weight = 0.8 + 0.2 * cell.excitability
+                    score *= eca_weight
+
                 if mid in self.memories:
                     entry = self.memories[mid].copy()
-                    entry["score"] = r["score"]
+                    entry["score"] = score
                     entry["retrieval_details"] = r.get("details", {})
                     output.append(entry)
                 else:
@@ -204,13 +211,14 @@ class CogMemMemory:
                                 "id": vid,
                                 "content": variant.variant_text,
                                 "embedding": variant.variant_embedding,
-                                "score": r["score"],
+                                "score": score,
                                 "retrieval_details": r.get("details", {}),
                                 "is_counterfactual": True,
                                 "source_id": variant.source_id,
                             })
                             break
 
+            output.sort(key=lambda x: x["score"], reverse=True)
             return output
 
         scores = []
@@ -218,6 +226,12 @@ class CogMemMemory:
             mem_emb = mem["embedding"]
             sim = float(np.dot(query_embedding, mem_emb) /
                        (np.linalg.norm(query_embedding) * np.linalg.norm(mem_emb) + 1e-8))
+
+            if self.eca is not None and mid in self.eca.cells:
+                cell = self.eca.cells[mid]
+                eca_weight = 0.8 + 0.2 * cell.excitability
+                sim *= eca_weight
+
             scores.append((mid, sim))
 
         scores.sort(key=lambda x: x[1], reverse=True)

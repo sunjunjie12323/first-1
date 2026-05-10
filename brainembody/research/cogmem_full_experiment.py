@@ -253,11 +253,6 @@ def load_locomo_data(data_path: str, max_samples: int = 10, max_qa: int = 100):
 
 
 def create_embodied_benchmark(embedder, n_scenes=5, n_objects_per_scene=8, n_queries_per_scene=10):
-    """
-    Create synthetic embodied benchmark for SSDR validation.
-    Each scene has a location, objects, and actions.
-    Queries test whether SSDR can leverage sensorimotor state.
-    """
     scenes = [
         {"name": "kitchen", "position": np.array([0.0, 0.0, 0.0]),
          "objects": ["refrigerator", "stove", "sink", "knife", "plate", "cup", "spoon", "pan"],
@@ -304,6 +299,26 @@ def create_embodied_benchmark(embedder, n_scenes=5, n_objects_per_scene=8, n_que
                 'action': action,
             })
 
+        for other_scene in scenes:
+            if other_scene["name"] != scene["name"]:
+                for obj in other_scene["objects"][:2]:
+                    distractor_content = f"The {obj} was mentioned in the {other_scene['name']}"
+                    distractor_state = SensorimotorState(
+                        position=scene["position"] + np.array([0.5, 0.5, 0.0]),
+                        orientation=np.array([0.0, 0.0, 1.0]),
+                        current_action="recalling",
+                        motor_state="stationary",
+                        environmental_features={"scene": scene["name"], "distractor_from": other_scene["name"]}
+                    )
+                    memories.append({
+                        'id': f"emb_distract_{scene['name']}_{other_scene['name']}_{obj}",
+                        'content': distractor_content,
+                        'sensorimotor_state': distractor_state,
+                        'scene': scene['name'],
+                        'object': obj,
+                        'action': 'recalling',
+                    })
+
     for scene in scenes:
         for q_idx in range(n_queries_per_scene):
             obj = scene["objects"][q_idx % len(scene["objects"])]
@@ -315,7 +330,9 @@ def create_embodied_benchmark(embedder, n_scenes=5, n_objects_per_scene=8, n_que
                 position=scene["position"] + np.array([0.1, 0.1, 0.0]),
                 orientation=np.array([0.0, 0.0, 1.0]),
                 current_action=action,
+                held_object=obj,
                 motor_state="active",
+                nearby_objects=scene["objects"][:3],
                 environmental_features={"scene": scene["name"]}
             )
 
@@ -391,6 +408,13 @@ def evaluate_system(system, dataset, system_name: str, is_cogmem: bool = False,
                 relevant_ids=relevant_mapped,
                 scores=[r.get("score", 0) for r in retrieved]
             ))
+        elif query["relevant_ids"]:
+            results.append(RetrievalResult(
+                query_id=query["id"],
+                retrieved_ids=retrieved_ids,
+                relevant_ids=[],
+                scores=[r.get("score", 0) for r in retrieved]
+            ))
 
     return results, id_mapping
 
@@ -444,7 +468,7 @@ def main():
         "EmotionalRAG": ("baseline", None),
         "CogMem-ECA": ("cogmem", CogMemConfig(
             enable_eca=True, enable_crc=False, enable_ssdr=False,
-            eca_config=ECAConfig(capacity=2000)
+            eca_config=ECAConfig(capacity=10000)
         )),
         "CogMem-CRC": ("cogmem", CogMemConfig(
             enable_eca=False, enable_crc=True, enable_ssdr=False,
@@ -456,17 +480,17 @@ def main():
         )),
         "CogMem-ECA+CRC": ("cogmem", CogMemConfig(
             enable_eca=True, enable_crc=True, enable_ssdr=False,
-            eca_config=ECAConfig(capacity=2000),
+            eca_config=ECAConfig(capacity=10000),
             crc_config=CRCConfig()
         )),
         "CogMem-ECA+SSDR": ("cogmem", CogMemConfig(
             enable_eca=True, enable_crc=False, enable_ssdr=True,
-            eca_config=ECAConfig(capacity=2000),
+            eca_config=ECAConfig(capacity=10000),
             ssdr_config=SSDRConfig()
         )),
         "CogMem-Full": ("cogmem", CogMemConfig(
             enable_eca=True, enable_crc=True, enable_ssdr=True,
-            eca_config=ECAConfig(capacity=2000),
+            eca_config=ECAConfig(capacity=10000),
             crc_config=CRCConfig(),
             ssdr_config=SSDRConfig()
         )),
@@ -524,12 +548,12 @@ def main():
         )),
         "CogMem-ECA+SSDR": ("cogmem", CogMemConfig(
             enable_eca=True, enable_crc=False, enable_ssdr=True,
-            eca_config=ECAConfig(capacity=200),
+            eca_config=ECAConfig(capacity=500),
             ssdr_config=SSDRConfig()
         )),
         "CogMem-Full": ("cogmem", CogMemConfig(
             enable_eca=True, enable_crc=True, enable_ssdr=True,
-            eca_config=ECAConfig(capacity=200),
+            eca_config=ECAConfig(capacity=500),
             crc_config=CRCConfig(),
             ssdr_config=SSDRConfig()
         )),
