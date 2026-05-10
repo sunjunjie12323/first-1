@@ -336,6 +336,24 @@ class CounterfactualReplayConsolidation:
                     1.0, self.experiences[source_id].importance * strengthen
                 )
 
+                if "association_with_next" in replay:
+                    next_id = replay.get("next_id")
+                    if next_id and next_id in self.experiences:
+                        next_emb = self.experiences[next_id].content_embedding
+                        lr = 0.05
+                        blended = (1 - lr) * self.experiences[source_id].content_embedding + lr * next_emb
+                        blended /= (np.linalg.norm(blended) + 1e-8)
+                        self.experiences[source_id].content_embedding = blended
+
+                if "cause_id" in replay:
+                    cause_id = replay["cause_id"]
+                    if cause_id in self.experiences:
+                        cause_emb = self.experiences[cause_id].content_embedding
+                        lr = 0.05
+                        blended = (1 - lr) * self.experiences[source_id].content_embedding + lr * cause_emb
+                        blended /= (np.linalg.norm(blended) + 1e-8)
+                        self.experiences[source_id].content_embedding = blended
+
         consolidation_report = {
             "total_replays": total_replays,
             "forward_replays": len(forward_replays),

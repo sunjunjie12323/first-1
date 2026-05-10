@@ -219,18 +219,24 @@ class SensorimotorStateRetrieval:
 
     def _state_informativeness(self, state: SensorimotorState) -> float:
         info = 0.0
-        if state.position is not None and np.linalg.norm(state.position) > 0.1:
+        generic_actions = {"conversing", "questioning", "idle", "waiting", "none", ""}
+        generic_motor = {"stationary", "idle", "none", ""}
+
+        if state.position is not None and np.linalg.norm(state.position) > 0.5:
             info += 0.3
-        if state.current_action:
-            info += 0.2
+
+        if state.current_action and state.current_action.lower() not in generic_actions:
+            info += 0.25
+
         if state.held_object:
             info += 0.2
-        if state.nearby_objects:
+
+        if state.nearby_objects and len(state.nearby_objects) > 0:
             info += 0.1
-        if state.motor_state:
-            info += 0.1
-        if state.environmental_features:
-            info += 0.1
+
+        if state.motor_state and state.motor_state.lower() not in generic_motor:
+            info += 0.15
+
         return min(info, 1.0)
 
     def compute_retrieval_score(self, query_embedding: np.ndarray,

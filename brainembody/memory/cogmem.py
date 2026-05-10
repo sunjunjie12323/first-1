@@ -237,17 +237,32 @@ class CogMemMemory:
             crc_report = self.crc.consolidate()
             report["crc"] = crc_report
 
-            consolidated = self.crc.get_consolidated_embeddings()
-            for mid, emb in consolidated.items():
+            for mid, exp in self.crc.experiences.items():
                 if mid in self.memories:
-                    old_emb = self.memories[mid]["embedding"]
-                    lr = self.config.crc_config.consolidation_learning_rate
-                    new_emb = (1 - lr) * old_emb + lr * emb
-                    new_emb /= (np.linalg.norm(new_emb) + 1e-8)
-                    self.memories[mid]["embedding"] = new_emb
-
+                    self.memories[mid]["embedding"] = exp.content_embedding.copy()
                     if self.ssdr is not None and mid in self.ssdr.memory_embeddings:
-                        self.ssdr.memory_embeddings[mid] = new_emb
+                        self.ssdr.memory_embeddings[mid] = exp.content_embedding.copy()
+
+            for vid, variant in self.crc.counterfactual_store.items():
+                if vid not in self.memories:
+                    self.memories[vid] = {
+                        "id": vid,
+                        "content": variant.variant_text,
+                        "embedding": variant.variant_embedding.copy(),
+                        "importance": 0.3,
+                        "prediction_error": 0.0,
+                        "sensorimotor_state": None,
+                        "is_counterfactual": True,
+                        "source_id": variant.source_id,
+                        "encode_time": self.encode_count,
+                    }
+                    if self.ssdr is not None:
+                        source_state = self.ssdr.memory_states.get(variant.source_id)
+                        self.ssdr.register_memory(
+                            memory_id=vid,
+                            content_embedding=variant.variant_embedding.copy(),
+                            sensorimotor_state=source_state
+                        )
 
         if self.eca is not None:
             self.eca._update_excitabilities()
