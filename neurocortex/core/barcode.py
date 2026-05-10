@@ -17,7 +17,7 @@ class BarcodeAssociativeMemory:
     def __init__(
         self,
         barcode_dim: int = 256,
-        barcode_sparsity: int = 16,
+        barcode_sparsity: int = 32,
         content_dim: int = 128,
         lambda_param: float = 0.5,
         temperature: float = 10.0,
@@ -25,6 +25,7 @@ class BarcodeAssociativeMemory:
         attractor_rate: float = 0.5,
         use_projection: bool = True,
         projection_seed: int = 123,
+        soft_wta: bool = True,
     ):
         self.barcode_dim = barcode_dim
         self.barcode_sparsity = barcode_sparsity
@@ -34,6 +35,7 @@ class BarcodeAssociativeMemory:
         self.attractor_steps = attractor_steps
         self.attractor_rate = attractor_rate
         self.use_projection = use_projection
+        self.soft_wta = soft_wta
         self._barcode_counter = 0
         self._rng = np.random.RandomState(42)
 
@@ -50,7 +52,9 @@ class BarcodeAssociativeMemory:
         if self._projection is None:
             raise ValueError("Projection matrix not available (use_projection=False or content_dim=0)")
         projected = self._projection @ content_vector.astype(np.float32)
-        return SeparationCompletionDuality.wta_sparsify(projected, self.barcode_sparsity)
+        return SeparationCompletionDuality.wta_sparsify(
+            projected, self.barcode_sparsity, soft=self.soft_wta
+        )
 
     def generate_barcode(self, content_vector: Optional[np.ndarray] = None) -> np.ndarray:
         if self.use_projection and content_vector is not None and self._projection is not None:

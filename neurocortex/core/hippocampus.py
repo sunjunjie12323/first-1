@@ -17,13 +17,14 @@ class Hippocampus:
     def __init__(
         self,
         barcode_dim: int = 256,
-        barcode_sparsity: int = 16,
+        barcode_sparsity: int = 32,
         content_dim: int = 128,
         lambda_param: float = 0.5,
         temperature: float = 10.0,
         max_traces: int = 10000,
         decay_threshold: float = 0.01,
         use_projection: bool = True,
+        soft_wta: bool = True,
     ):
         self.bam = BarcodeAssociativeMemory(
             barcode_dim=barcode_dim,
@@ -32,6 +33,7 @@ class Hippocampus:
             lambda_param=lambda_param,
             temperature=temperature,
             use_projection=use_projection,
+            soft_wta=soft_wta,
         )
         self.max_traces = max_traces
         self.decay_threshold = decay_threshold

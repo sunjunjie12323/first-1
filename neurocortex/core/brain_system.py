@@ -60,6 +60,7 @@ class BrainSystem:
             content_dim=128,
             lambda_param=lambda_param,
             use_projection=True,
+            soft_wta=True,
         )
         self.neocortex = Neocortex()
         self.prefrontal = PrefrontalCortex(capacity=working_memory_capacity)
