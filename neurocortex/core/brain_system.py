@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from .amygdala import Amygdala
-from .basal_forebrain import BasalForebrain
-from .consolidation import ConsolidationEngine
-from .hippocampus import Hippocampus
-from .llm_engine import LLMEngine
-from .memory_trace import (
+from neurocortex.core.amygdala import Amygdala
+from neurocortex.core.basal_forebrain import BasalForebrain
+from neurocortex.core.consolidation import Consolidation
+from neurocortex.core.hippocampus import Hippocampus
+from neurocortex.core.llm_engine import LLMEngine
+from neurocortex.core.memory_trace import (
     ContextTag,
     EpisodicTrace,
     MemoryPhase,
@@ -22,395 +21,364 @@ from .memory_trace import (
     ReconstructedMemory,
     SemanticSchema,
 )
-from .neocortex import Neocortex
-from .prefrontal_cortex import PrefrontalCortex
-from .reconstructive_recall import ReconstructiveRecall
+from neurocortex.core.neocortex import Neocortex
+from neurocortex.core.prefrontal import PrefrontalCortex
+from neurocortex.core.reconstructive_recall import ReconstructiveRecall
+from neurocortex.core.theory import (
+    BarcodeCapacityTheorem,
+    ReconstructiveDistortionBound,
+    SchacterSinsMapping,
+    SeparationCompletionDuality,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class BrainSystem:
-    """
-    The whole-brain orchestrator for NeuroCortex.
-
-    Coordinates all brain-region modules to implement the complete
-    perception → encoding → recall → response → consolidation cycle.
-
-    Information flow (mirroring the human brain):
-    ┌─────────────┐
-    │   INPUT      │ (user message / robot sensor)
-    └──────┬──────┘
-           │
-    ┌──────▼──────┐     ┌──────────────┐
-    │  Basal       │────▶│   Amygdala   │
-    │  Forebrain   │     │ (importance) │
-    │ (novelty)    │     └──────┬───────┘
-    └──────┬──────┘            │
-           │                   │
-    ┌──────▼───────────────────▼──────┐
-    │        HIPPOCAMPUS              │
-    │   (episodic encoding +          │
-    │    pattern completion)          │
-    └──────────────┬─────────────────┘
-                   │
-    ┌──────────────▼──────────────────┐
-    │   RECONSTRUCTIVE RECALL         │  ◀── CORE INNOVATION
-    │   (fragment assembly +          │
-    │    LLM reconstruction)         │
-    └──────────────┬─────────────────┘
-                   │
-    ┌──────────────▼──────────────────┐
-    │   PREFRONTAL CORTEX             │
-    │   (working memory +             │
-    │    attention + goal tracking)   │
-    └──────────────┬─────────────────┘
-                   │
-    ┌──────────────▼──────────────────┐
-    │        LLM ENGINE               │
-    │   (reasoning + generation)      │
-    └──────────────┬─────────────────┘
-                   │
-    ┌──────────────▼──────────────────┐
-    │        OUTPUT                   │
-    │   (response to user/robot)      │
-    └─────────────────────────────────┘
-
-    During idle periods (sleep):
-    ┌──────────────┐     ┌──────────────┐
-    │  HIPPOCAMPUS │────▶│  NEOCORTEX   │
-    │  (replay)    │     │ (consolidate)│
-    └──────────────┘     └──────────────┘
-    """
-
     def __init__(
         self,
         llm_base_url: str = "http://localhost:11434",
-        llm_model: str = "qwen2.5:7b",
-        llm_api_type: str = "ollama",
-        embedding_dim: int = 768,
-        consolidation_interval: int = 10,
-        data_dir: str = "./neurocortex_data",
-        system_identity: str = "",
+        llm_model: str = "llama3.2",
+        embedding_model: str = "nomic-embed-text",
+        api_type: str = "ollama",
+        api_key: Optional[str] = None,
+        barcode_dim: int = 256,
+        barcode_sparsity: int = 16,
+        lambda_param: float = 0.5,
+        working_memory_capacity: int = 7,
     ):
-        self.data_dir = data_dir
-        self.system_identity = system_identity or (
-            "你是一个具有类脑记忆系统的智能体，部署在机器人上。"
-            "你像人脑一样记忆和回忆——记住对话的过程和情感，"
-            "而不是死记硬背答案。"
-        )
-
         self.llm_engine = LLMEngine(
             base_url=llm_base_url,
             model=llm_model,
-            api_type=llm_api_type,
+            embedding_model=embedding_model,
+            api_type=api_type,
+            api_key=api_key,
         )
-
-        self.hippocampus = Hippocampus(embedding_dim=embedding_dim)
-        self.neocortex = Neocortex(embedding_dim=embedding_dim)
-        self.prefrontal = PrefrontalCortex()
+        self.hippocampus = Hippocampus(
+            barcode_dim=barcode_dim,
+            barcode_sparsity=barcode_sparsity,
+            content_dim=128,
+            lambda_param=lambda_param,
+            use_projection=True,
+        )
+        self.neocortex = Neocortex()
+        self.prefrontal = PrefrontalCortex(capacity=working_memory_capacity)
         self.amygdala = Amygdala()
         self.basal_forebrain = BasalForebrain()
-        self.reconstructive_recall = ReconstructiveRecall()
-        self.consolidation_engine = ConsolidationEngine()
-
-        self.consolidation_interval = consolidation_interval
-        self._interaction_count = 0
-        self._last_consolidation = 0
-
-        os.makedirs(data_dir, exist_ok=True)
+        self.reconstructive_recall = ReconstructiveRecall(
+            hippocampus=self.hippocampus,
+            neocortex=self.neocortex,
+            llm_engine=self.llm_engine,
+        )
+        self.consolidation = Consolidation(
+            hippocampus=self.hippocampus,
+            neocortex=self.neocortex,
+            amygdala=self.amygdala,
+            llm_engine=self.llm_engine,
+        )
 
     async def process_input(
         self,
-        user_message: str,
+        content: str,
+        context: Optional[ContextTag] = None,
         source: str = "user",
-        context: Optional[Dict[str, str]] = None,
-        emotional_feedback: float = 0.0,
+        emotional_valence: float = 0.0,
+        social_relevance: float = 0.0,
+        goal_relevance: float = 0.0,
     ) -> Dict[str, Any]:
-        """
-        Process a user input through the complete brain pipeline.
+        embedding = await self.llm_engine.get_embedding(content)
 
-        This is the main entry point for the system. It implements:
-        1. Perception → novelty detection
-        2. Encoding → hippocampal + amygdalar processing
-        3. Recall → reconstructive memory retrieval
-        4. Response → LLM generation with memory context
-        5. Learning → feedback-driven neuromodulation
-        """
-        self._interaction_count += 1
-        self.prefrontal.advance_turn()
+        existing_matrix = self._get_existing_embeddings()
+        novelty_score = self._compute_novelty(embedding, existing_matrix)
 
-        logger.info(f"Processing input #{self._interaction_count}: {user_message[:50]}...")
+        self.basal_forebrain.compute_novelty(novelty_score)
 
-        # === PHASE 1: Perception & Novelty Detection ===
-        embedding = await self._get_embedding(user_message)
-
-        existing_embeddings = self._get_existing_embeddings()
-        novelty = self.basal_forebrain.compute_novelty(embedding, existing_embeddings)
-
-        # === PHASE 2: Importance Assessment (Amygdala) ===
-        importance, emotional_valence = self.amygdala.assess_importance(
-            content=user_message,
-            emotional_intensity=abs(emotional_feedback),
-            novelty_score=novelty,
-            source=source,
-            current_goals=self.prefrontal.goals,
+        importance = self.amygdala.assess_importance(
+            emotional_valence=emotional_valence,
+            novelty_score=novelty_score,
+            social_relevance=social_relevance,
+            goal_relevance=goal_relevance,
         )
 
-        # === PHASE 3: Hippocampal Encoding ===
-        context_tag = ContextTag(
-            interlocutor=source,
-            **(context or {}),
-        )
-
-        encoding_gate = self.basal_forebrain.encoding_gate
-        effective_importance = importance * encoding_gate
+        encoding_gate = self.basal_forebrain.get_encoding_gate()
 
         trace = self.hippocampus.encode(
-            content=user_message,
+            content=content,
             embedding=embedding,
-            context=context_tag,
-            importance=effective_importance,
+            context=context or ContextTag(),
+            importance=importance,
             emotional_valence=emotional_valence,
+            novelty_score=novelty_score,
             source=source,
-            novelty_score=novelty,
-            reward_score=self.basal_forebrain.state.reward_signal,
+            encoding_gate=encoding_gate,
         )
 
-        # === PHASE 4: Reconstructive Recall ===
-        reconstructed_memory = await self.reconstructive_recall.recall(
-            query=user_message,
-            query_embedding=embedding,
-            hippocampus=self.hippocampus,
-            neocortex=self.neocortex,
-            llm_engine=self.llm_engine,
-            emotional_valence=emotional_valence,
-            current_context=self.prefrontal.get_relevant_context(user_message),
-            neuromodulatory_state=self.basal_forebrain.state,
+        if trace is not None:
+            modified_decay = self.amygdala.modify_decay_rate(trace.decay_rate, importance)
+            trace.decay_rate = modified_decay
+
+        self.prefrontal.add_to_working_memory(
+            content=content,
+            embedding=embedding,
+            attention_weight=importance,
+            metadata={"trace_id": trace.trace_id if trace else None, "importance": importance},
         )
 
-        # === PHASE 5: Working Memory Update ===
-        self.prefrontal.update_working_memory(
-            content=user_message,
-            source=source,
-            attention_weight=effective_importance,
-        )
-        self.prefrontal.focus_attention(user_message)
+        recall_result = await self.reconstructive_recall.recall(content, embedding, top_k=3)
 
-        # === PHASE 6: LLM Response Generation ===
-        working_memory_context = self.prefrontal.get_relevant_context(user_message)
-
+        memory_context = recall_result.reconstructed_narrative
         response = await self.llm_engine.generate_with_memory_context(
-            user_message=user_message,
-            reconstructed_memory=reconstructed_memory.reconstructed_narrative,
-            working_memory_context=working_memory_context,
-            system_prompt=self.system_identity,
+            prompt=content,
+            memory_context=memory_context,
+            max_tokens=512,
         )
 
-        # === PHASE 7: Encode Response ===
-        response_embedding = await self._get_embedding(response)
-        response_importance = effective_importance * 0.7
+        reward_signal = self._estimate_reward(response, importance)
+        self.basal_forebrain.compute_reward(reward_signal)
 
-        self.hippocampus.encode(
-            content=f"[回应] {response}",
-            embedding=response_embedding,
-            context=context_tag,
-            importance=response_importance,
-            emotional_valence=emotional_valence * 0.5,
-            source="self",
-            novelty_score=novelty * 0.3,
-        )
-
-        # === PHASE 8: Neuromodulatory Update ===
-        self.basal_forebrain.compute_reward(emotional_feedback)
-        self.basal_forebrain.update_social_signal(source != "system")
-        self.basal_forebrain.decay_to_baseline()
-
-        # === PHASE 9: Check Consolidation Need ===
-        if self._should_consolidate():
-            asyncio.create_task(self._run_consolidation())
+        self.basal_forebrain.homeostatic_decay()
+        self.prefrontal.decay_attention()
 
         return {
             "response": response,
-            "memory_trace_id": trace.trace_id,
-            "reconstruction_id": reconstructed_memory.reconstruction_id,
-            "importance": effective_importance,
-            "novelty": novelty,
-            "emotional_valence": emotional_valence,
-            "memory_confidence": reconstructed_memory.confidence,
-            "distortion_score": reconstructed_memory.distortion_score,
-            "neuromodulatory_state": self.basal_forebrain.state.to_dict(),
+            "trace_id": trace.trace_id if trace else None,
+            "importance": importance,
+            "novelty_score": novelty_score,
+            "encoding_gate": encoding_gate,
+            "recall_confidence": recall_result.confidence,
+            "distortion_score": recall_result.distortion_score,
+            "neuromodulatory_state": self.basal_forebrain.get_state().to_dict(),
         }
 
-    async def recall_memory(
-        self,
-        query: str,
-        source: str = "user",
-    ) -> Dict[str, Any]:
-        """
-        Explicitly recall a memory without generating a response.
-        Useful for testing memory properties.
-        """
-        embedding = await self._get_embedding(query)
+    async def recall_memory(self, query: str) -> ReconstructedMemory:
+        query_embedding = await self.llm_engine.get_embedding(query)
+        result = await self.reconstructive_recall.recall(query, query_embedding)
+        return result
 
-        reconstructed = await self.reconstructive_recall.recall(
-            query=query,
-            query_embedding=embedding,
-            hippocampus=self.hippocampus,
-            neocortex=self.neocortex,
-            llm_engine=self.llm_engine,
-            current_context=self.prefrontal.get_relevant_context(query),
+    async def force_consolidation(self) -> Dict[str, int]:
+        consolidation_gate = self.basal_forebrain.get_consolidation_gate()
+        return await self.consolidation.consolidate(consolidation_gate)
+
+    def get_memory_status(self) -> Dict[str, Any]:
+        traces = list(self.hippocampus.traces.values())
+        schemas = list(self.neocortex.schemas.values())
+
+        phase_counts = {}
+        for phase in MemoryPhase:
+            phase_counts[phase.value] = sum(1 for t in traces if t.phase == phase)
+
+        avg_strength = float(np.mean([t.memory_strength for t in traces])) if traces else 0.0
+        avg_importance = float(np.mean([t.importance for t in traces])) if traces else 0.0
+
+        return {
+            "total_traces": len(traces),
+            "total_schemas": len(schemas),
+            "phase_distribution": phase_counts,
+            "avg_memory_strength": avg_strength,
+            "avg_importance": avg_importance,
+            "working_memory_load": len(self.prefrontal.working_memory),
+            "working_memory_capacity": self.prefrontal.capacity,
+            "current_goal": self.prefrontal.current_goal,
+            "neuromodulatory_state": self.basal_forebrain.get_state().to_dict(),
+            "barcode_dim": self.hippocampus.bam.barcode_dim,
+            "barcode_sparsity": self.hippocampus.bam.barcode_sparsity,
+            "lambda_param": self.hippocampus.bam.lambda_param,
+        }
+
+    def analyze_distortion(self, query_embedding: Optional[np.ndarray] = None) -> Dict[str, Any]:
+        traces = list(self.hippocampus.traces.values())
+        if not traces:
+            return {"distortion_score": 1.0, "schacter_sins": {}}
+
+        activations = []
+        consolidation_levels = []
+        if query_embedding is not None:
+            results = self.hippocampus.retrieve_by_cue(query_embedding, top_k=5)
+            for trace, sim in results:
+                activations.append(sim)
+                consolidation_levels.append(trace.consolidation_level)
+
+        if not activations:
+            activations = [t.memory_strength for t in traces[:5]]
+            consolidation_levels = [t.consolidation_level for t in traces[:5]]
+
+        distortion = SchacterSinsMapping.compute_distortion(
+            activations=activations,
+            consolidation_levels=consolidation_levels,
+            n_spread_traces=max(0, len(traces) - 5),
+            n_schemas=len(self.neocortex.schemas),
         )
 
-        return {
-            "query": query,
-            "reconstructed_narrative": reconstructed.reconstructed_narrative,
-            "confidence": reconstructed.confidence,
-            "distortion_score": reconstructed.distortion_score,
-            "source_traces": reconstructed.source_traces,
-            "source_schemas": reconstructed.source_schemas,
-        }
+        avg_trace = traces[0]
+        if len(traces) > 1:
+            avg_emotion = float(np.mean([t.emotional_valence for t in traces]))
+            avg_importance = float(np.mean([t.importance for t in traces]))
+            avg_decay = float(np.mean([t.decay_rate for t in traces]))
+        else:
+            avg_emotion = avg_trace.emotional_valence
+            avg_importance = avg_trace.importance
+            avg_decay = avg_trace.decay_rate
 
-    async def force_consolidation(self) -> Dict[str, Any]:
-        """Manually trigger a consolidation round."""
-        return await self._run_consolidation()
+        from datetime import datetime, timezone as tz
+        avg_age = float(np.mean([
+            (datetime.now(tz.utc) - t.timestamp).total_seconds() / 3600.0 for t in traces
+        ]))
 
-    def set_goals(self, goals: List[str]) -> None:
-        for goal in goals:
-            self.prefrontal.update_goals(goal)
+        sins = SchacterSinsMapping.compute_schacter_sins(
+            trace_age_hours=avg_age,
+            decay_rate=avg_decay,
+            encoding_gate=self.basal_forebrain.get_encoding_gate(),
+            activation=float(np.mean(activations)) if activations else 0.0,
+            detail_level="full",
+            n_spread=max(0, len(traces) - 1),
+            n_schemas=len(self.neocortex.schemas),
+            emotional_valence=avg_emotion,
+            importance=avg_importance,
+        )
 
-    async def get_memory_status(self) -> Dict[str, Any]:
-        """Get comprehensive status of all brain regions."""
-        llm_health = await self.llm_engine.check_health()
+        return {"distortion_score": distortion, "schacter_sins": sins}
 
-        return {
-            "interaction_count": self._interaction_count,
-            "llm": llm_health,
-            "hippocampus": self.hippocampus.get_status(),
-            "neocortex": self.neocortex.get_status(),
-            "prefrontal_cortex": self.prefrontal.get_status(),
-            "amygdala": self.amygdala.get_status(),
-            "basal_forebrain": self.basal_forebrain.get_status(),
-            "consolidation_rounds": self.consolidation_engine.consolidation_count,
-        }
+    async def save_state(self, path: str) -> None:
+        os.makedirs(path, exist_ok=True)
 
-    async def save_state(self) -> None:
-        """Save the complete brain state to disk."""
+        traces_data = {}
+        for tid, trace in self.hippocampus.traces.items():
+            d = trace.to_dict()
+            d["embedding"] = trace.embedding.tolist() if trace.embedding.size > 0 else []
+            d["barcode"] = trace.barcode.tolist() if trace.barcode.size > 0 else []
+            traces_data[tid] = d
+
+        schemas_data = {}
+        for sid, schema in self.neocortex.schemas.items():
+            d = schema.to_dict()
+            d["embedding"] = schema.embedding.tolist() if schema.embedding.size > 0 else []
+            schemas_data[sid] = d
+
         state = {
-            "interaction_count": self._interaction_count,
-            "last_consolidation": self._last_consolidation,
-            "hippocampus_traces": [
-                self._serialize_trace(t)
-                for t in self.hippocampus.get_active_traces()
-            ],
-            "neocortex_schemas": [
-                self._serialize_schema(s)
-                for s in self.neocortex.get_all_schemas()
-            ],
-            "prefrontal_state": self.prefrontal.get_status(),
-            "saved_at": datetime.now().isoformat(),
+            "traces": traces_data,
+            "schemas": schemas_data,
+            "associations": {
+                tid: dict(neighbors)
+                for tid, neighbors in self.hippocampus.association_graph.items()
+            },
+            "neuromodulatory_state": self.basal_forebrain.get_state().to_dict(),
+            "barcode_dim": self.hippocampus.bam.barcode_dim,
+            "barcode_sparsity": self.hippocampus.bam.barcode_sparsity,
+            "lambda_param": self.hippocampus.bam.lambda_param,
         }
 
-        path = os.path.join(self.data_dir, "brain_state.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
+        with open(os.path.join(path, "brain_state.json"), "w") as f:
+            json.dump(state, f, indent=2)
 
         logger.info(f"Brain state saved to {path}")
 
-    async def load_state(self) -> None:
-        """Load brain state from disk."""
-        path = os.path.join(self.data_dir, "brain_state.json")
-        if not os.path.exists(path):
-            logger.info("No saved state found, starting fresh")
+    async def load_state(self, path: str) -> None:
+        state_file = os.path.join(path, "brain_state.json")
+        if not os.path.exists(state_file):
+            logger.warning(f"State file not found: {state_file}")
             return
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(state_file, "r") as f:
             state = json.load(f)
 
-        self._interaction_count = state.get("interaction_count", 0)
-        self._last_consolidation = state.get("last_consolidation", 0)
+        self.hippocampus.traces = {}
+        for tid, d in state.get("traces", {}).items():
+            emb_list = d.pop("embedding", [])
+            embedding = np.array(emb_list, dtype=np.float32) if emb_list else np.array([], dtype=np.float32)
+            bc_list = d.pop("barcode", [])
+            barcode = np.array(bc_list, dtype=np.float32) if bc_list else np.array([], dtype=np.float32)
+            d.pop("embedding_shape", None)
+            d.pop("barcode_shape", None)
+            d.pop("memory_strength", None)
+            context_data = d.pop("context", {})
+            context = ContextTag(**context_data)
+            phase_str = d.pop("phase", "episodic")
+            phase = MemoryPhase(phase_str)
+            ts_str = d.pop("timestamp", None)
+            timestamp = datetime.fromisoformat(ts_str) if ts_str else datetime.now(timezone.utc)
+            lr_str = d.pop("last_reactivation", None)
+            last_reactivation = datetime.fromisoformat(lr_str) if lr_str else None
 
-        logger.info(
-            f"Brain state loaded: {self._interaction_count} interactions, "
-            f"{len(state.get('hippocampus_traces', []))} traces, "
-            f"{len(state.get('neocortex_schemas', []))} schemas"
+            trace = EpisodicTrace(
+                trace_id=d.get("trace_id", tid),
+                timestamp=timestamp,
+                content=d.get("content", ""),
+                embedding=embedding,
+                barcode=barcode,
+                context=context,
+                importance=d.get("importance", 0.5),
+                emotional_valence=d.get("emotional_valence", 0.0),
+                consolidation_level=d.get("consolidation_level", 0.0),
+                reactivation_count=d.get("reactivation_count", 0),
+                last_reactivation=last_reactivation,
+                decay_rate=d.get("decay_rate", 0.1),
+                associations=d.get("associations", []),
+                source=d.get("source", ""),
+                novelty_score=d.get("novelty_score", 0.0),
+                phase=phase,
+            )
+            self.hippocampus.traces[tid] = trace
+
+        self.neocortex.schemas = {}
+        for sid, d in state.get("schemas", {}).items():
+            emb_list = d.pop("embedding", [])
+            embedding = np.array(emb_list, dtype=np.float32) if emb_list else np.array([], dtype=np.float32)
+            d.pop("embedding_shape", None)
+            d.pop("maturity", None)
+            schema = SemanticSchema(
+                schema_id=d.get("schema_id", sid),
+                gist=d.get("gist", ""),
+                embedding=embedding,
+                source_traces=d.get("source_traces", []),
+                confidence=d.get("confidence", 0.5),
+                key_entities=d.get("key_entities", []),
+                associations=d.get("associations", []),
+                reinforcement_count=d.get("reinforcement_count", 0),
+            )
+            self.neocortex.schemas[sid] = schema
+
+        self.hippocampus.association_graph = {}
+        for tid, neighbors in state.get("associations", {}).items():
+            self.hippocampus.association_graph[tid] = {n: float(w) for n, w in neighbors.items()}
+
+        neuro_data = state.get("neuromodulatory_state", {})
+        self.basal_forebrain.state = NeuromodulatoryState(
+            acetylcholine=neuro_data.get("acetylcholine", 0.5),
+            dopamine=neuro_data.get("dopamine", 0.5),
+            serotonin=neuro_data.get("serotonin", 0.5),
+            norepinephrine=neuro_data.get("norepinephrine", 0.5),
         )
 
-    async def shutdown(self) -> None:
-        """Gracefully shut down the brain system."""
-        await self.save_state()
-        await self.llm_engine.close()
-        logger.info("Brain system shut down gracefully")
+        bc_dim = state.get("barcode_dim", 256)
+        bc_sparsity = state.get("barcode_sparsity", 16)
+        lam = state.get("lambda_param", 0.5)
+        self.hippocampus.bam.barcode_dim = bc_dim
+        self.hippocampus.bam.barcode_sparsity = bc_sparsity
+        self.hippocampus.bam.lambda_param = lam
 
-    async def _get_embedding(self, text: str) -> np.ndarray:
-        """Get embedding for text, with fallback to hash-based embedding."""
-        raw_embedding = await self.llm_engine.get_embedding(text)
-
-        if raw_embedding and len(raw_embedding) > 0:
-            embedding = np.array(raw_embedding, dtype=np.float32)
-            if embedding.shape[0] != self.hippocampus.embedding_dim:
-                if embedding.shape[0] > self.hippocampus.embedding_dim:
-                    embedding = embedding[: self.hippocampus.embedding_dim]
-                else:
-                    padded = np.zeros(self.hippocampus.embedding_dim, dtype=np.float32)
-                    padded[: embedding.shape[0]] = embedding
-                    embedding = padded
-            return embedding
-
-        return self._hash_embedding(text)
-
-    def _hash_embedding(self, text: str) -> np.ndarray:
-        """Fallback: generate a deterministic pseudo-embedding from text hash."""
-        import hashlib
-
-        hash_bytes = hashlib.sha256(text.encode("utf-8")).digest()
-        embedding = np.frombuffer(hash_bytes, dtype=np.float32).copy()
-
-        while embedding.shape[0] < self.hippocampus.embedding_dim:
-            hash_bytes = hashlib.sha256(hash_bytes).digest()
-            more = np.frombuffer(hash_bytes, dtype=np.float32).copy()
-            embedding = np.concatenate([embedding, more])
-
-        embedding = embedding[: self.hippocampus.embedding_dim]
-        norm = np.linalg.norm(embedding)
-        if norm > 1e-8:
-            embedding = embedding / norm
-        return embedding
+        logger.info(f"Brain state loaded from {path}")
 
     def _get_existing_embeddings(self) -> Optional[np.ndarray]:
-        """Get the matrix of existing embeddings for novelty computation."""
-        traces = self.hippocampus.get_active_traces()
-        if not traces:
-            return None
-        embeddings = [t.embedding for t in traces if t.embedding is not None]
+        embeddings = [t.embedding for t in self.hippocampus.traces.values() if t.embedding.size > 0]
         if not embeddings:
             return None
         return np.stack(embeddings)
 
-    def _should_consolidate(self) -> bool:
-        return (
-            self._interaction_count - self._last_consolidation
-            >= self.consolidation_interval
-        )
+    @staticmethod
+    def _compute_novelty(embedding: np.ndarray, existing_matrix: Optional[np.ndarray]) -> float:
+        if existing_matrix is None or len(existing_matrix) == 0:
+            return 1.0
+        norm = np.linalg.norm(embedding)
+        if norm < 1e-8:
+            return 0.5
+        normalized = embedding / norm
+        mat_norms = np.linalg.norm(existing_matrix, axis=1, keepdims=True)
+        mat_norms = np.maximum(mat_norms, 1e-8)
+        sims = (existing_matrix / mat_norms) @ normalized
+        max_sim = float(np.max(sims))
+        return float(max(0.0, 1.0 - max_sim))
 
-    async def _run_consolidation(self) -> Dict[str, Any]:
-        """Run a consolidation round."""
-        self._last_consolidation = self._interaction_count
-        result = await self.consolidation_engine.consolidate(
-            hippocampus=self.hippocampus,
-            neocortex=self.neocortex,
-            llm_engine=self.llm_engine,
-            amygdala=self.amygdala,
-        )
-        return result
-
-    def _serialize_trace(self, trace: EpisodicTrace) -> Dict:
-        d = trace.to_dict()
-        if trace.embedding is not None:
-            d["embedding_shape"] = list(trace.embedding.shape)
-        return d
-
-    def _serialize_schema(self, schema: SemanticSchema) -> Dict:
-        d = schema.to_dict()
-        if schema.embedding is not None:
-            d["embedding_shape"] = list(schema.embedding.shape)
-        return d
+    @staticmethod
+    def _estimate_reward(response: str, importance: float) -> float:
+        length_factor = min(1.0, len(response) / 200.0)
+        return 0.5 * length_factor + 0.5 * importance

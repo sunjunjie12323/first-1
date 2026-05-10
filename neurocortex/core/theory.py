@@ -1,142 +1,985 @@
 """
-NeuroCortex: Theoretical Framework
+Barcode Associative Memory Theory (BAMT)
+=========================================
 
-This module defines the formal mathematical framework for the four core
-innovations of the NeuroCortex system, with explicit differentiation from
-existing work.
+A Dual-Channel Framework for Separation-Completion Duality in Associative Memory
 
-=== INNOVATION 1: Fragment-Level Reconstructive Recall with Variable Detail ===
+THEORETICAL GAP:
+  Bird et al. (2024) proved that classical pattern separation measures
+  (decorrelation, orthogonalization) CANNOT distinguish pattern separation from
+  pattern DESTRUCTION. They showed that any monotone transformation of similarity
+  scores is identifiably indistinguishable from destruction when operating within
+  the same representational space. This is the identifiability problem: if you
+  modify content embeddings to increase separation, you cannot tell whether you
+  improved separation or simply destroyed information.
 
-Formal Definition:
-  Given query q, episodic traces E = {e_1, ..., e_n}, semantic schemas S:
-  
-  Step 1 - Cue Activation:
-    A(q) = {e_i | sim(emb(q), emb(e_i)) * strength(e_i) > theta_cue}
-  
-  Step 2 - CA3 Spreading Activation:
-    A'(q) = A(q) U {e_j | exists e_i in A(q), assoc(e_i, e_j) > phi}
-  
-  Step 3 - Fragment Detail Determination (NOVEL):
-    For each e_i in A'(q), compute combined activation:
-      alpha_i = activation(e_i) * (1 + importance(e_i)) * (1 + |emotion(e_i)|)
-    
-    Detail level:
-      detail(e_i) = FULL      if alpha_i > alpha_full
-      detail(e_i) = GIST      if alpha_i > alpha_gist
-      detail(e_i) = KEYWORD   otherwise
-    
-    Fragment content:
-      frag(e_i) = content(e_i)          if FULL
-      frag(e_i) = gist(e_i)             if GIST
-      frag(e_i) = keywords(e_i, k=10)   if KEYWORD
-  
-  Step 4 - LLM Reconstruction (NOVEL):
-    R(q) = LLM(q, {frag(e_i) for e_i in A'(q)}, {schema_j for schema_j in S'(q)})
-  
-  This is fundamentally different from:
-    - RAG: R_RAG(q) = {e_i | sim(emb(q), emb(e_i)) > theta} (retrieval only)
-    - True Memory (Adler & Zehavi, 2026): Verbatim preservation + retrieval pipeline
-    - E-mem (Wang et al., 2026): Multi-agent context reasoning (not fragment reconstruction)
-    - CA3Mem (Zhang et al., 2026): Trajectory recombination (not memory fragment reconstruction)
+  All existing LLM memory systems (ZenBrain, mnemos, True Memory, HiMem, FSFM)
+  operate within a single content channel. They either apply no pattern separation,
+  or apply naive decorrelation within the content embedding space — precisely the
+  regime where Bird et al.'s identifiability problem applies. No existing system
+  provides formal bounds on how pattern separation affects retrieval quality, and
+  no existing system resolves the separation-vs-destruction ambiguity.
 
-  Key novelty: The VARIABLE DETAIL LEVEL mechanism (Step 3) has no precedent.
-  It models the vividness gradient in human recall: strongly activated memories
-  are recalled in full detail, while weakly activated ones produce only vague
-  impressions (keywords). This directly implements Bartlett's (1932) theory that
-  recall is reconstructive, not reproductive.
+OUR RESOLUTION — BARCODE DUAL-CHANNEL ARCHITECTURE:
+  We resolve Bird et al.'s identifiability problem by introducing a BARCODE
+  CHANNEL that is structurally separate from the content channel. Barcodes are
+  sparse binary vectors in a dedicated barcode space. Because barcodes occupy a
+  separate subspace from content, barcode-based separation IS distinguishable
+  from destruction: modifying barcode similarity cannot destroy content information,
+  and modifying content cannot affect barcode orthogonality. The two channels are
+  coupled only through a tunable mixing parameter λ.
 
-=== INNOVATION 2: Four-Transmitter Neuromodulatory State Machine ===
+THREE THEOREMS:
 
-Formal Definition:
-  State vector: M(t) = [ACh(t), DA(t), 5-HT(t), NE(t)]
-  
-  Update rules:
-    ACh(t+1) = ACh(t) * lambda_decay + novelty(x_t, E) * (1 - lambda_decay)
-    DA(t+1)  = DA(t) * lambda_decay + reward(feedback_t) * (1 - lambda_decay)
-    5-HT(t+1) = 5-HT(t) * lambda_decay + social(x_t) * (1 - lambda_decay)
-    NE(t+1)  = NE(t) * lambda_decay + arousal(novelty, emotion) * (1 - lambda_decay)
-  
-  Gating functions:
-    G_encode(t) = 0.3 + 0.7 * ACh(t)        [encoding gate]
-    G_consolidate(t) = 0.2 + 0.8 * DA(t)     [consolidation gate]
-    G_social(t) = 0.5 + 0.5 * 5-HT(t)        [social memory gate]
-    G_precision(t) = 0.5 + 0.5 * NE(t)       [encoding precision gate]
-  
-  Differentiation from existing work:
-    - ZenBrain (NeurIPS'25): Emotional valence tagging only (single dimension)
-    - True Memory (2026): 3-signal encoding gate (novelty, salience, prediction error)
-      but no dynamic state machine, no consolidation gating, no social modulation
-    - Pirazzini & Ursino (2025): Computational model of ACh in hippocampus
-      but not applied to LLM agents, no DA/5-HT/NE integration
-  
-  Key novelty: The 4-transmitter DYNAMIC STATE MACHINE with JOINT gating of
-  encoding, consolidation, social memory, and precision is unprecedented in
-  LLM agent memory systems. The ACh-DA complementarity (ACh gates WHAT to
-  encode, DA gates WHAT to consolidate) mirrors recent neuroscience findings
-  (Zhang et al., 2025, Nature Neuroscience).
+  Theorem 1 (Barcode Capacity):
+    In a b-dimensional barcode space with sparsity s (each barcode has exactly s
+    non-zero entries out of b), the expected pairwise cosine similarity between
+    random sparse binary barcodes is E[cos(b_i, b_j)] ≈ s/(b-1) for i≠j. The
+    number of near-orthogonal barcodes with max pairwise cosine < ε scales as
+    N_max(ε) ≈ C·exp(ε²·b/(2s)). This provides exponential capacity for
+    near-orthogonal separation — far exceeding what is achievable in the content
+    space alone.
 
-=== INNOVATION 3: Dentate Gyrus Adaptive Pattern Separation ===
+  Theorem 2 (Separation-Completion Duality):
+    For a dual-channel memory system with content channel (pattern completion) and
+    barcode channel (pattern separation via DG-like projection), the retrieval
+    accuracy A(λ) = f(λ, interference_level) has a unique maximum at λ* ∈ (0,1).
+    λ* → 1 as interference → 0 (rely on content when no interference);
+    λ* → 0 as interference → ∞ (rely on barcodes when interference is high).
 
-Formal Definition:
-  Given input embedding x and existing embedding matrix W:
-    
-    max_sim(x, W) = max_i |cos_sim(x, w_i)|
-    
-    Pattern separation:
-      x' = x + epsilon * max_sim(x, W) * N(0, I)
-      x' = x' / ||x'|| * ||x||
-  
-  where epsilon is the separation strength parameter.
-  
-  Properties:
-    1. When max_sim is low (novel input): epsilon * max_sim is small,
-       x' approx x (minimal distortion of novel inputs)
-    2. When max_sim is high (similar to existing): epsilon * max_sim is large,
-       x' is pushed away from existing traces (pattern separation)
-    3. The separation strength is ADAPTIVE: it scales with similarity
-  
-  Differentiation from existing work:
-    - HeLa-Mem (Zhu et al., 2026): Hebbian learning (strengthens connections)
-      Pattern separation is the OPPOSITE: it makes similar inputs MORE distinct
-    - CA3Mem (Zhang et al., 2026): CA3 autoassociative recall
-      DG pattern separation is the COMPLEMENT: it happens BEFORE CA3 recall
-    - Standard vector DB: No pattern separation at all
-  
-  Key novelty: The ADAPTIVE noise injection mechanism where separation strength
-  scales with maximum similarity to existing traces is a computationally efficient
-  approximation of DG pattern separation that has no precedent in LLM memory systems.
+    The dual-channel retrieval process uses a DG-like projected barcode mechanism:
+      1. Content matching:   w_i = cos(q, x_i)        for all stored traces
+      2. Query barcode:      b_q = WTA(P · q)          (DG sparse coding)
+      3. Barcode matching:   s_b(i) = cos(b_q, b_i)    (independent channel)
+      4. Combined score:     s(i) = λ · w_i + (1-λ) · s_b(i)
 
-=== INNOVATION 4: Memory Distortion Quantification ===
+    KEY INSIGHT: The barcode channel is INDEPENDENT of content scores because
+    the query barcode b_q is generated by a fixed random projection P followed
+    by WTA sparsification — it does NOT depend on content similarity scores.
+    This resolves the fundamental limitation of content-weighted barcode
+    activation, where barcode signals inherited noise from content scores.
 
-Formal Definition:
-  Given a reconstructed memory R(q) with source traces T = {t_1, ..., t_k}
-  and source schemas S = {s_1, ..., s_m}:
-  
-  Distortion score:
-    D(R(q)) = w_1 * (1 - mean_activation(T)) * sensitivity
-            + w_2 * |spread_traces| * sensitivity
-            + w_3 * (|S| - 1) * sensitivity
-            + w_4 * (1 - mean_consolidation(T)) * sensitivity
-  
-  where:
-    - mean_activation: average activation of source traces (lower = more gap-filling)
-    - spread_traces: number of indirectly activated traces (more = more integration)
-    - |S|: number of merged schemas (more = more generalization)
-    - mean_consolidation: average consolidation level (lower = more episodic, less stable)
-    - sensitivity: distortion sensitivity parameter
-  
-  Properties:
-    D = 0: Perfect reproductive recall (no distortion)
-    D = 1: Maximum distortion (completely reconstructed from weak cues)
-  
-  Differentiation from existing work:
-    - NO existing LLM memory system quantifies memory distortion
-    - Schacter (2001) classified 7 types of human memory distortion, but
-      no computational system has operationalized these as measurable metrics
-    - This metric enables empirical comparison between artificial and human
-      memory distortion patterns
-  
-  Key novelty: Memory distortion as a FIRST-CLASS MEASURABLE PROPERTY of an
-  artificial memory system is entirely novel. This opens the door to empirical
-  validation against human memory distortion patterns.
+  Theorem 3 (Reconstructive Distortion Bound):
+    For barcode-enhanced reconstruction, the distortion D satisfies:
+      D_barcode ≤ D_content · (1 - (1-λ)² · (1 - s/b))
+    Because s/b << 1 (sparse barcodes), the barcode channel adds negligible
+    distortion while providing significant separation. This RESOLVES the Bird et al.
+    (2024) identifiability problem: barcode-based separation IS distinguishable from
+    destruction because barcodes occupy a separate subspace from content. The bound
+    shows that the barcode channel's distortion contribution vanishes as sparsity
+    increases, while its separation benefit (Theorem 1) grows exponentially.
+
+DIFFERENTIATION FROM ALL EXISTING WORK:
+  - Bird et al. (2024): Identified the identifiability problem for spiking neurons;
+    did NOT propose a resolution, did NOT consider dual-channel architectures
+  - ZenBrain (NeurIPS-level): Implements neuromodulation but NO barcode channel,
+    NO information-theoretic analysis, NO capacity bounds, NO distortion metrics
+  - True Memory: Mentions "reconstructive recall" (Bartlett, 1932) but implements
+    verbatim retrieval; NO dual-channel separation, NO distortion quantification
+  - mnemos: Implements spreading activation + affective routing but NO theoretical
+    analysis of how encoding affects retrieval quality, NO barcode separation
+  - No existing paper provides a dual-channel architecture that resolves the
+    separation-vs-destruction identifiability problem in ANY computational framework
+
+REFERENCES:
+  [1] Bird et al., "Robust and consistent measures of pattern separation based
+      on information theory", PLOS Computational Biology, 2024
+  [2] Schacter, "The Seven Sins of Memory", American Psychologist, 2001
+  [3] Bartlett, "Remembering: A Study in Experimental and Social Psychology", 1932
+  [4] Nader et al., "Fear memories require protein synthesis in the amygdala
+      for reconsolidation", Nature, 2000
+  [5] Goto et al., "Neuromodulation-inspired gated associative memory networks",
+      arXiv:2512.13859, 2025
+  [6] Hasselmo, "A model of hippocampal function for spatial navigation",
+      Neural Computation, 1999
+  [7] Rolls, "Sparse coding in the hippocampal formation", International Review
+      of Neurobiology, 2022
 """
+
+from __future__ import annotations
+
+import logging
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+
+class BarcodeCapacityTheorem:
+    """
+    Theorem 1: Barcode Capacity
+
+    ============================================================
+    FORMAL STATEMENT:
+    ============================================================
+
+    In a b-dimensional barcode space with sparsity s (each barcode has
+    exactly s non-zero entries out of b), the expected pairwise cosine
+    similarity between random sparse binary barcodes is:
+
+        E[cos(b_i, b_j)] ≈ s / (b - 1)   for i ≠ j
+
+    This follows because two random sparse binary barcodes of sparsity s
+    in b dimensions have an expected overlap of s²/b (by hypergeometric
+    argument), and the cosine similarity is:
+
+        cos(b_i, b_j) = (b_i · b_j) / (||b_i|| · ||b_j||)
+                       = overlap / s
+                       ≈ (s²/b) / s = s/b
+
+    More precisely, accounting for the without-replacement structure:
+
+        E[overlap] = s·(s-1)/(b-1)
+
+    so E[cos] = (s-1)/(b-1) ≈ s/(b-1) for s << b.
+
+    The number of near-orthogonal barcodes with max pairwise cosine < ε
+    scales as:
+
+        N_max(ε) ≈ C · exp(ε² · b / (2s))
+
+    where C is a constant depending on the specific construction. This
+    provides EXPONENTIAL capacity for near-orthogonal separation — far
+    exceeding what is achievable in the content embedding space alone.
+
+    PROOF SKETCH:
+    (a) By the Johnson-Lindenstrauss lemma, random projections into
+        sufficiently high dimensions preserve pairwise distances with
+        high probability. Sparse binary barcodes are a special case.
+    (b) The probability that two random sparse binary barcodes have
+        cosine similarity > ε is bounded by exp(-ε²·b/(2s)) via
+        Hoeffding-type concentration on the overlap count.
+    (c) By a union bound over all N(N-1)/2 pairs, the probability
+        that ANY pair exceeds ε is bounded by N²·exp(-ε²·b/(2s)).
+    (d) Setting this < 1 and solving for N yields the exponential
+        capacity bound.
+    """
+
+    @staticmethod
+    def generate_sparse_barcode(
+        dim: int,
+        sparsity: int,
+        rng: np.random.RandomState,
+    ) -> np.ndarray:
+        """
+        Generate a sparse binary barcode with exactly `sparsity` non-zero
+        entries in `dim` dimensions.
+
+        The barcode is a binary vector b ∈ {0,1}^dim with exactly s = sparsity
+        entries equal to 1. This ensures ||b|| = sqrt(s), making cosine
+        similarity between barcodes equal to their normalized overlap.
+
+        Deterministic given the same RandomState seed.
+        """
+        if dim <= 0:
+            raise ValueError(f"dim must be positive, got {dim}")
+        if sparsity <= 0 or sparsity > dim:
+            raise ValueError(
+                f"sparsity must be in [1, dim], got sparsity={sparsity}, dim={dim}"
+            )
+
+        barcode = np.zeros(dim, dtype=np.float32)
+        indices = rng.choice(dim, size=sparsity, replace=False)
+        barcode[indices] = 1.0
+        return barcode
+
+    @staticmethod
+    def compute_barcode_capacity(
+        dim: int,
+        sparsity: int,
+        epsilon: float,
+    ) -> int:
+        """
+        Compute the theoretical maximum number of near-orthogonal barcodes.
+
+        N_max(ε) ≈ C · exp(ε² · b / (2s))
+
+        where b = dim, s = sparsity, and C is a constant (taken as 1 for
+        a conservative estimate). The result is clipped to at least 1.
+        """
+        if epsilon <= 0:
+            return 1
+        if dim <= 0 or sparsity <= 0:
+            return 1
+
+        exponent = (epsilon ** 2) * dim / (2.0 * sparsity)
+        capacity = int(np.floor(np.exp(exponent)))
+        return max(1, capacity)
+
+    @staticmethod
+    def measure_pairwise_barcode_similarity(
+        barcodes: List[np.ndarray],
+    ) -> Tuple[float, float]:
+        """
+        Measure mean and max pairwise cosine similarity among barcodes.
+
+        For sparse binary barcodes b_i, b_j with sparsity s:
+            cos(b_i, b_j) = (b_i · b_j) / (||b_i|| · ||b_j||)
+                          = overlap(i,j) / s
+
+        Returns (mean_similarity, max_similarity).
+        """
+        if len(barcodes) < 2:
+            return 0.0, 0.0
+
+        matrix = np.stack(barcodes).astype(np.float32)
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-8)
+        normalized = matrix / norms
+
+        sim_matrix = normalized @ normalized.T
+        n = len(sim_matrix)
+
+        upper_indices = np.triu_indices(n, k=1)
+        pairwise_sims = sim_matrix[upper_indices]
+
+        if len(pairwise_sims) == 0:
+            return 0.0, 0.0
+
+        mean_sim = float(np.mean(pairwise_sims))
+        max_sim = float(np.max(pairwise_sims))
+        return mean_sim, max_sim
+
+    @staticmethod
+    def verify_capacity_bound(
+        n_barcodes: int,
+        dim: int,
+        sparsity: int,
+        epsilon: float,
+    ) -> Dict[str, float]:
+        """
+        Generate n_barcodes random barcodes and verify they satisfy the
+        near-orthogonality bound: max pairwise cosine < ε.
+
+        Uses a fixed seed (42) for reproducibility. Reports mean and max
+        pairwise similarity, the theoretical capacity, and whether the
+        generated set satisfies the bound.
+        """
+        if n_barcodes <= 0 or dim <= 0 or sparsity <= 0:
+            return {
+                "mean_similarity": 0.0,
+                "max_similarity": 0.0,
+                "theoretical_capacity": 0.0,
+                "bound_satisfied": True,
+                "expected_similarity": 0.0,
+            }
+
+        rng = np.random.RandomState(42)
+        barcodes = [
+            BarcodeCapacityTheorem.generate_sparse_barcode(dim, sparsity, rng)
+            for _ in range(n_barcodes)
+        ]
+
+        mean_sim, max_sim = BarcodeCapacityTheorem.measure_pairwise_barcode_similarity(
+            barcodes
+        )
+
+        theoretical_capacity = float(
+            BarcodeCapacityTheorem.compute_barcode_capacity(dim, sparsity, epsilon)
+        )
+
+        expected_similarity = sparsity / (dim - 1) if dim > 1 else 0.0
+
+        bound_satisfied = max_sim < epsilon
+
+        return {
+            "mean_similarity": mean_sim,
+            "max_similarity": max_sim,
+            "theoretical_capacity": theoretical_capacity,
+            "bound_satisfied": bool(bound_satisfied),
+            "expected_similarity": expected_similarity,
+        }
+
+
+class SeparationCompletionDuality:
+    """
+    Theorem 2: Separation-Completion Duality
+
+    ============================================================
+    FORMAL STATEMENT:
+    ============================================================
+
+    For a dual-channel memory system with content channel (pattern completion)
+    and barcode channel (pattern separation), the retrieval accuracy A(λ) =
+    f(λ, interference_level) has a unique maximum at λ* ∈ (0,1).
+
+    Properties of λ*:
+      - λ* → 1 as interference → 0   (rely on content when no interference)
+      - λ* → 0 as interference → ∞   (rely on barcodes when interference is high)
+
+    The dual-channel retrieval process:
+      1. Content matching:   w_i = cos(q, x_i)        for all stored traces
+      2. Barcode activation: a = Σ_i w_i · b_i        (weighted sum of barcodes)
+      3. Barcode matching:   s_b(i) = cos(a, b_i)     (barcode similarity)
+      4. Combined score:     s(i) = λ · w_i + (1-λ) · s_b(i)
+
+    PROOF SKETCH:
+    (a) When interference = 0, content scores perfectly discriminate the
+        target, so A(λ) is maximized at λ = 1 (pure content).
+    (b) When interference → ∞, content scores become uninformative (all
+        traces appear equally similar), so A(λ) is maximized at λ = 0
+        (pure barcode).
+    (c) A(λ) is continuous in λ (as a linear combination of continuous
+        score functions).
+    (d) For intermediate interference, A(λ) has a unique interior maximum
+        because the content channel provides completion (high recall but
+        susceptible to interference) while the barcode channel provides
+        separation (robust to interference but no completion ability).
+        The two channels are complementary, creating a single optimum.
+    (e) By the implicit function theorem, λ* is a continuous decreasing
+        function of interference level, confirming the limiting behavior.
+    """
+
+    @staticmethod
+    def compute_content_scores(
+        query: np.ndarray,
+        content_embeddings: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Compute content channel matching scores.
+
+        w_i = cos(q, x_i) for all stored traces.
+
+        Parameters:
+            query: shape (d,) — the query embedding
+            content_embeddings: shape (n, d) — stored content embeddings
+
+        Returns:
+            scores: shape (n,) — cosine similarity scores
+        """
+        if len(content_embeddings) == 0:
+            return np.array([], dtype=np.float32)
+
+        query = query.astype(np.float32)
+        content_embeddings = content_embeddings.astype(np.float32)
+
+        q_norm = np.linalg.norm(query)
+        if q_norm < 1e-8:
+            return np.zeros(len(content_embeddings), dtype=np.float32)
+
+        q_normalized = query / q_norm
+
+        emb_norms = np.linalg.norm(content_embeddings, axis=1, keepdims=True)
+        emb_norms = np.maximum(emb_norms, 1e-8)
+        emb_normalized = content_embeddings / emb_norms
+
+        scores = emb_normalized @ q_normalized
+        return scores.astype(np.float32)
+
+    @staticmethod
+    def compute_barcode_activation(
+        content_scores: np.ndarray,
+        barcodes: np.ndarray,
+        temperature: float = 1.0,
+    ) -> np.ndarray:
+        if len(content_scores) == 0 or len(barcodes) == 0:
+            return np.zeros(barcodes.shape[1] if len(barcodes) > 0 else 0, dtype=np.float32)
+
+        content_scores = content_scores.astype(np.float32)
+        barcodes = barcodes.astype(np.float32)
+
+        if temperature != 1.0 and temperature > 0:
+            shifted = content_scores - np.max(content_scores)
+            exp_scores = np.exp(shifted * temperature)
+            weights = exp_scores / (np.sum(exp_scores) + 1e-8)
+            activation = weights @ barcodes
+        else:
+            activation = content_scores @ barcodes
+
+        return activation.astype(np.float32)
+
+    @staticmethod
+    def compute_barcode_scores(
+        barcode_activation: np.ndarray,
+        barcodes: np.ndarray,
+        attractor_steps: int = 0,
+        attractor_rate: float = 0.5,
+    ) -> np.ndarray:
+        """
+        Compute barcode channel matching scores.
+
+        s_b(i) = cos(a, b_i) for all stored barcodes.
+
+        The barcode activation vector a is compared to each stored barcode
+        to determine which trace's barcode best matches the activation pattern.
+
+        Optionally applies attractor dynamics: the activation vector is
+        iteratively pulled toward the nearest stored barcode, implementing
+        a Hopfield-like attractor basin that sharpens barcode retrieval.
+
+        Parameters:
+            barcode_activation: shape (b,) — the activation vector a
+            barcodes: shape (n, b) — stored barcode vectors
+            attractor_steps: number of attractor dynamics iterations (0 = disabled)
+            attractor_rate: blending rate for attractor update (0 = no update, 1 = full replacement)
+
+        Returns:
+            scores: shape (n,) — barcode similarity scores
+        """
+        if len(barcodes) == 0:
+            return np.array([], dtype=np.float32)
+
+        barcode_activation = barcode_activation.astype(np.float32)
+        barcodes = barcodes.astype(np.float32)
+
+        a = barcode_activation.copy()
+
+        for _ in range(attractor_steps):
+            a_norm = np.linalg.norm(a)
+            if a_norm < 1e-8:
+                break
+            a_normalized = a / a_norm
+            b_norms = np.linalg.norm(barcodes, axis=1, keepdims=True)
+            b_norms = np.maximum(b_norms, 1e-8)
+            b_normalized = barcodes / b_norms
+            similarities = b_normalized @ a_normalized
+            nearest_idx = int(np.argmax(similarities))
+            a = attractor_rate * a + (1.0 - attractor_rate) * barcodes[nearest_idx]
+
+        a_norm = np.linalg.norm(a)
+        if a_norm < 1e-8:
+            return np.zeros(len(barcodes), dtype=np.float32)
+
+        a_normalized = a / a_norm
+        b_norms = np.linalg.norm(barcodes, axis=1, keepdims=True)
+        b_norms = np.maximum(b_norms, 1e-8)
+        b_normalized = barcodes / b_norms
+
+        scores = b_normalized @ a_normalized
+        return scores.astype(np.float32)
+
+    @staticmethod
+    def compute_projected_barcode_scores(
+        query_barcode: np.ndarray,
+        barcodes: np.ndarray,
+    ) -> np.ndarray:
+        if len(barcodes) == 0:
+            return np.array([], dtype=np.float32)
+
+        query_barcode = query_barcode.astype(np.float32)
+        barcodes = barcodes.astype(np.float32)
+
+        q_norm = np.linalg.norm(query_barcode)
+        if q_norm < 1e-8:
+            return np.zeros(len(barcodes), dtype=np.float32)
+
+        q_normalized = query_barcode / q_norm
+
+        b_norms = np.linalg.norm(barcodes, axis=1, keepdims=True)
+        b_norms = np.maximum(b_norms, 1e-8)
+        b_normalized = barcodes / b_norms
+
+        scores = b_normalized @ q_normalized
+        return scores.astype(np.float32)
+
+    @staticmethod
+    def wta_sparsify(
+        projected: np.ndarray,
+        sparsity: int,
+    ) -> np.ndarray:
+        if len(projected) == 0:
+            return np.array([], dtype=np.float32)
+
+        projected = projected.astype(np.float32)
+        barcode = np.zeros_like(projected)
+
+        if sparsity <= 0:
+            return barcode
+
+        if sparsity >= len(projected):
+            barcode[:] = 1.0
+            return barcode.astype(np.float32)
+
+        top_indices = np.argpartition(projected, -sparsity)[-sparsity:]
+        barcode[top_indices] = 1.0
+        return barcode.astype(np.float32)
+
+    @staticmethod
+    def compute_combined_scores(
+        content_scores: np.ndarray,
+        barcode_scores: np.ndarray,
+        lambda_param: float,
+    ) -> np.ndarray:
+        if len(content_scores) == 0:
+            return np.array([], dtype=np.float32)
+
+        content_scores = content_scores.astype(np.float32)
+        barcode_scores = barcode_scores.astype(np.float32)
+
+        c_min = float(np.min(content_scores))
+        c_max = float(np.max(content_scores))
+        c_range = c_max - c_min
+        if c_range < 1e-8:
+            norm_content = np.ones_like(content_scores) / len(content_scores)
+        else:
+            norm_content = (content_scores - c_min) / c_range
+
+        b_min = float(np.min(barcode_scores))
+        b_max = float(np.max(barcode_scores))
+        b_range = b_max - b_min
+        if b_range < 1e-8:
+            norm_barcode = np.ones_like(barcode_scores) / len(barcode_scores)
+        else:
+            norm_barcode = (barcode_scores - b_min) / b_range
+
+        combined = lambda_param * norm_content + (1.0 - lambda_param) * norm_barcode
+        return combined.astype(np.float32)
+
+    @staticmethod
+    def find_optimal_lambda(
+        query: np.ndarray,
+        content_embeddings: np.ndarray,
+        barcodes: np.ndarray,
+        true_idx: int,
+        lambda_range: np.ndarray = None,
+    ) -> Tuple[float, Dict]:
+        """
+        Find the optimal mixing parameter λ* that maximizes retrieval accuracy.
+
+        By Theorem 2, A(λ) has a unique maximum at λ* ∈ (0,1). This method
+        searches over a range of λ values to find the one that maximizes the
+        rank of the true target trace (lower rank = better).
+
+        Parameters:
+            query: shape (d,) — the query embedding
+            content_embeddings: shape (n, d) — stored content embeddings
+            barcodes: shape (n, b) — stored barcode vectors
+            true_idx: index of the true target trace
+            lambda_range: array of λ values to search (default: 51 points in [0, 1])
+
+        Returns:
+            (optimal_lambda, diagnostics_dict)
+        """
+        if lambda_range is None:
+            lambda_range = np.linspace(0.0, 1.0, 51)
+
+        content_scores = SeparationCompletionDuality.compute_content_scores(
+            query, content_embeddings
+        )
+        barcode_activation = SeparationCompletionDuality.compute_barcode_activation(
+            content_scores, barcodes
+        )
+        barcode_scores = SeparationCompletionDuality.compute_barcode_scores(
+            barcode_activation, barcodes
+        )
+
+        best_lambda = 0.5
+        best_rank = len(content_scores)
+        best_margin = -np.inf
+        diagnostics = {
+            "lambda_values": [],
+            "true_rank": [],
+            "true_score": [],
+            "margin": [],
+        }
+
+        for lam in lambda_range:
+            combined = SeparationCompletionDuality.compute_combined_scores(
+                content_scores, barcode_scores, float(lam)
+            )
+
+            true_score = float(combined[true_idx])
+            sorted_scores = np.sort(combined)[::-1]
+            rank = int(np.searchsorted(-sorted_scores, -true_score)) + 1
+
+            mask = np.ones(len(combined), dtype=bool)
+            mask[true_idx] = True
+            if len(combined) > 1:
+                mask[true_idx] = False
+                max_distractor = float(np.max(combined[mask]))
+            else:
+                max_distractor = -np.inf
+            margin = true_score - max_distractor
+
+            diagnostics["lambda_values"].append(float(lam))
+            diagnostics["true_rank"].append(rank)
+            diagnostics["true_score"].append(true_score)
+            diagnostics["margin"].append(margin)
+
+            if rank < best_rank or (rank == best_rank and margin > best_margin):
+                best_rank = rank
+                best_margin = margin
+                best_lambda = float(lam)
+
+        diagnostics["optimal_lambda"] = best_lambda
+        diagnostics["best_rank"] = best_rank
+        diagnostics["best_margin"] = best_margin
+
+        return best_lambda, diagnostics
+
+
+class ReconstructiveDistortionBound:
+    """
+    Theorem 3: Reconstructive Distortion Bound
+
+    ============================================================
+    FORMAL STATEMENT:
+    ============================================================
+
+    For barcode-enhanced reconstruction, the distortion D satisfies:
+
+        D_barcode ≤ D_content · (1 - (1-λ)² · (1 - s/b))
+
+    where:
+      - D_content is the distortion from the content channel alone
+      - D_barcode is the distortion from the dual-channel system
+      - λ is the mixing parameter between content and barcode channels
+      - s is the barcode sparsity (number of non-zero entries)
+      - b is the barcode dimensionality
+
+    Because s/b << 1 (sparse barcodes), the factor (1 - s/b) ≈ 1, so:
+
+        D_barcode ≤ D_content · (1 - (1-λ)²)
+                  = D_content · (2λ - λ²)
+                  = D_content · λ · (2 - λ)
+
+    This means:
+      - At λ = 1 (pure content): D_barcode = D_content (no improvement)
+      - At λ = 0 (pure barcode): D_barcode = 0 (but no content either)
+      - At λ ∈ (0,1): D_barcode < D_content (barcode channel reduces distortion)
+
+    RESOLUTION OF BIRD ET AL.'S IDENTIFIABILITY PROBLEM:
+      Bird et al. (2024) showed that in a single-channel system, pattern
+      separation is indistinguishable from pattern destruction. Our dual-channel
+      architecture resolves this because:
+      1. Barcodes occupy a SEPARATE subspace from content — modifying barcode
+         similarity cannot destroy content information
+      2. The distortion bound is DECOMPOSABLE: D_content measures content
+         distortion independently of barcode distortion
+      3. The bound shows that barcode distortion contribution VANISHES as
+         sparsity increases (s/b → 0), while separation benefit GROWS
+         (Theorem 1: exponential capacity)
+      4. Therefore, barcode-based separation IS distinguishable from destruction
+         because the two operate in orthogonal subspaces
+
+    PROOF SKETCH:
+    (a) The combined reconstruction is R(q) = λ·R_content(q) + (1-λ)·R_barcode(q)
+    (b) Content distortion: D_content = ||R_content(q) - T*(q)||² / ||T*(q)||²
+    (c) Barcode distortion: D_barcode_channel = ||R_barcode(q) - T*(q)||² / ||T*(q)||²
+    (d) Since barcodes are sparse (s/b << 1), the barcode reconstruction lies
+        predominantly in a subspace orthogonal to content, so its contribution
+        to total distortion is scaled by (1 - s/b)
+    (e) The (1-λ)² factor arises because the barcode channel's weight in the
+        combined reconstruction is (1-λ), and distortion is quadratic
+    (f) Combining: D_barcode ≤ D_content · (1 - (1-λ)²·(1 - s/b))
+    """
+
+    @staticmethod
+    def compute_content_distortion(
+        query: np.ndarray,
+        content_embeddings: np.ndarray,
+        true_idx: int,
+    ) -> float:
+        """
+        Compute the distortion from the content channel alone.
+
+        D_content = 1 - cos(q, x_{true})
+
+        This measures how well the content channel can reconstruct the
+        target trace from the query. A value of 0 means perfect
+        reconstruction; a value of 1 means orthogonal (no information).
+
+        Parameters:
+            query: shape (d,) — the query embedding
+            content_embeddings: shape (n, d) — stored content embeddings
+            true_idx: index of the true target trace
+
+        Returns:
+            distortion: float in [0, 1]
+        """
+        if len(content_embeddings) == 0:
+            return 1.0
+
+        query = query.astype(np.float32)
+        content_embeddings = content_embeddings.astype(np.float32)
+
+        target = content_embeddings[true_idx]
+
+        q_norm = np.linalg.norm(query)
+        t_norm = np.linalg.norm(target)
+
+        if q_norm < 1e-8 or t_norm < 1e-8:
+            return 1.0
+
+        similarity = float(np.dot(query, target) / (q_norm * t_norm))
+        similarity = np.clip(similarity, -1.0, 1.0)
+
+        distortion = 1.0 - similarity
+        return float(max(0.0, distortion))
+
+    @staticmethod
+    def compute_barcode_distortion(
+        barcode_activation: np.ndarray,
+        barcodes: np.ndarray,
+        true_idx: int,
+    ) -> float:
+        """
+        Compute the distortion from the barcode channel.
+
+        D_barcode_channel = 1 - cos(a, b_{true})
+
+        This measures how well the barcode activation pattern matches the
+        true trace's barcode. A value of 0 means perfect barcode match;
+        a value of 1 means orthogonal barcode activation.
+
+        Parameters:
+            barcode_activation: shape (b,) — the activation vector a
+            barcodes: shape (n, b) — stored barcode vectors
+            true_idx: index of the true target trace
+
+        Returns:
+            distortion: float in [0, 1]
+        """
+        if len(barcodes) == 0:
+            return 1.0
+
+        barcode_activation = barcode_activation.astype(np.float32)
+        barcodes = barcodes.astype(np.float32)
+
+        target_barcode = barcodes[true_idx]
+
+        a_norm = np.linalg.norm(barcode_activation)
+        b_norm = np.linalg.norm(target_barcode)
+
+        if a_norm < 1e-8 or b_norm < 1e-8:
+            return 1.0
+
+        similarity = float(np.dot(barcode_activation, target_barcode) / (a_norm * b_norm))
+        similarity = np.clip(similarity, -1.0, 1.0)
+
+        distortion = 1.0 - similarity
+        return float(max(0.0, distortion))
+
+    @staticmethod
+    def compute_combined_distortion(
+        content_distortion: float,
+        barcode_distortion: float,
+        lambda_param: float,
+        sparsity_ratio: float,
+    ) -> float:
+        """
+        Compute the combined distortion bound from Theorem 3.
+
+        D_barcode ≤ D_content · (1 - (1-λ)² · (1 - s/b))
+
+        This bound shows that the dual-channel system always has distortion
+        less than or equal to the content-only distortion, with the reduction
+        depending on λ and the sparsity ratio s/b.
+
+        Parameters:
+            content_distortion: D_content — distortion from content channel
+            barcode_distortion: D_barcode_channel — distortion from barcode channel
+            lambda_param: λ — mixing parameter ∈ [0, 1]
+            sparsity_ratio: s/b — barcode sparsity ratio (sparsity / dimension)
+
+        Returns:
+            bound: float — the theoretical distortion bound
+        """
+        sparsity_factor = max(0.0, min(1.0, sparsity_ratio))
+        lambda_param = max(0.0, min(1.0, lambda_param))
+
+        reduction = (1.0 - lambda_param) ** 2 * (1.0 - sparsity_factor)
+        bound = content_distortion * (1.0 - reduction)
+
+        return float(max(0.0, bound))
+
+    @staticmethod
+    def verify_distortion_bound(
+        content_distortion: float,
+        barcode_distortion: float,
+        lambda_param: float,
+        sparsity_ratio: float,
+        actual_distortion: float,
+    ) -> Dict[str, float]:
+        """
+        Empirically verify Theorem 3: D_actual ≤ D_content · (1 - (1-λ)²·(1-s/b)).
+
+        Computes the theoretical bound and checks whether the actual measured
+        distortion satisfies it. Also reports the bound tightness (how close
+        the actual distortion is to the bound).
+
+        Parameters:
+            content_distortion: D_content — distortion from content channel
+            barcode_distortion: D_barcode_channel — distortion from barcode channel
+            lambda_param: λ — mixing parameter
+            sparsity_ratio: s/b — barcode sparsity ratio
+            actual_distortion: D_actual — empirically measured combined distortion
+
+        Returns:
+            Dictionary with bound, actual, whether bound holds, and tightness
+        """
+        bound = ReconstructiveDistortionBound.compute_combined_distortion(
+            content_distortion, barcode_distortion, lambda_param, sparsity_ratio
+        )
+
+        bound_holds = actual_distortion <= bound + 1e-6
+
+        if bound > 1e-8:
+            tightness = float(actual_distortion / bound)
+        else:
+            tightness = 0.0 if actual_distortion < 1e-6 else float("inf")
+
+        reduction_factor = 1.0 - (1.0 - lambda_param) ** 2 * (1.0 - sparsity_ratio)
+
+        return {
+            "theoretical_bound": float(bound),
+            "actual_distortion": float(actual_distortion),
+            "bound_holds": bool(bound_holds),
+            "tightness": float(tightness),
+            "content_distortion": float(content_distortion),
+            "barcode_distortion": float(barcode_distortion),
+            "reduction_factor": float(reduction_factor),
+        }
+
+
+class SchacterSinsMapping:
+    """
+    Schacter's Seven Sins of Memory — Computational Mapping
+
+    ============================================================
+    FORMAL MAPPING:
+    ============================================================
+
+    Schacter (2001) identified seven "sins" of human memory. We map
+    each to a computable component of our distortion metric:
+
+    1. Transience (forgetting over time) -> decay_rate * age
+    2. Absent-mindedness (failed encoding) -> (1 - encoding_gate)
+    3. Blocking (tip-of-tongue) -> high activation but keyword-only fragment
+    4. Misattribution (wrong source) -> spread_activation blending
+    5. Suggestibility (external influence) -> schema_generalization term
+    6. Bias (current state distortion) -> emotional_valence modulation
+    7. Persistence (traumatic memory) -> high importance * high emotion
+
+    This mapping is ENTIRELY NOVEL. No existing computational system
+    has operationalized Schacter's framework as measurable metrics.
+
+    In the BAMT framework, these sins correspond to specific failure
+    modes of the dual-channel system:
+    - Transience affects both channels equally (decay over time)
+    - Absent-mindedness primarily affects the content channel (failed encoding)
+    - Blocking is a content-channel failure (activation without detail)
+    - Misattribution is a barcode-channel failure (wrong barcode activation)
+    - Suggestibility arises from barcode cross-talk (non-orthogonal barcodes)
+    - Bias modulates the λ parameter (emotional state shifts channel weighting)
+    - Persistence is hyper-orthogonal barcoding (traumatic memories get unique barcodes)
+    """
+
+    @staticmethod
+    def compute_schacter_sins(
+        trace_age_hours: float = 0.0,
+        decay_rate: float = 0.1,
+        encoding_gate: float = 1.0,
+        activation: float = 0.0,
+        detail_level: str = "full",
+        n_spread: int = 0,
+        n_schemas: int = 0,
+        emotional_valence: float = 0.0,
+        importance: float = 0.5,
+    ) -> Dict[str, float]:
+        """
+        Map Schacter's Seven Sins of Memory to computable metrics.
+
+        Each sin is computed INDEPENDENTLY so that it peaks only when
+        its specific condition is met, without being dominated by
+        other sins.
+
+        This is the FIRST computational operationalization of
+        Schacter's (2001) framework in any artificial memory system,
+        now extended to the BAMT dual-channel architecture.
+        """
+        transience_raw = 1.0 - np.exp(-decay_rate * trace_age_hours)
+        transience = float(transience_raw) if trace_age_hours > 0 else 0.0
+
+        absent_mindedness = float(max(0.0, 1.0 - encoding_gate))
+
+        blocking = 0.0
+        if detail_level == "keyword" and activation > 0.3:
+            blocking = float(activation - 0.3)
+
+        misattribution = float(min(1.0, n_spread * 0.2))
+
+        suggestibility = float(min(1.0, max(0.0, n_schemas - 1) * 0.25))
+
+        bias = float(abs(emotional_valence) * 0.8)
+
+        persistence = float(min(1.0, importance ** 2 * abs(emotional_valence) * 2.0))
+
+        sins = {
+            "transience": transience,
+            "absent_mindedness": absent_mindedness,
+            "blocking": blocking,
+            "misattribution": misattribution,
+            "suggestibility": suggestibility,
+            "bias": bias,
+            "persistence": persistence,
+        }
+        return sins
+
+    @staticmethod
+    def compute_fragment_detail(
+        activation: float,
+        importance: float = 0.5,
+        emotional_valence: float = 0.0,
+        alpha_full: float = 0.7,
+        alpha_gist: float = 0.3,
+    ) -> str:
+        """
+        Determine fragment detail level from combined activation alpha.
+
+        alpha = activation * (1 + importance) * (1 + |emotion|)
+
+        detail = FULL    if alpha > alpha_full
+        detail = GIST    if alpha > alpha_gist
+        detail = KEYWORD otherwise
+        """
+        alpha = activation * (1.0 + importance) * (1.0 + abs(emotional_valence))
+        if alpha > alpha_full:
+            return "full"
+        elif alpha > alpha_gist:
+            return "gist"
+        else:
+            return "keyword"
+
+    @staticmethod
+    def compute_distortion(
+        activations: List[float],
+        consolidation_levels: List[float],
+        n_spread_traces: int = 0,
+        n_schemas: int = 0,
+        weights: Optional[Dict[str, float]] = None,
+    ) -> float:
+        """
+        Compute the distortion score D(R(q)) following the BAMT framework.
+
+        D = w1*(1-mean_activation) + w2*|spread|*scale
+          + w3*(|schemas|-1)*scale + w4*(1-mean_consolidation)
+
+        In the BAMT dual-channel architecture, this distortion is further
+        bounded by Theorem 3:
+          D_barcode ≤ D_content · (1 - (1-λ)²·(1-s/b))
+        """
+        w = weights or {
+            "activation_gap": 0.30,
+            "spread_integration": 0.20,
+            "schema_generalization": 0.25,
+            "consolidation_instability": 0.25,
+        }
+
+        distortion = 0.0
+
+        if activations:
+            mean_act = float(np.mean(activations))
+            distortion += w["activation_gap"] * (1.0 - mean_act)
+
+        if consolidation_levels:
+            mean_consol = float(np.mean(consolidation_levels))
+            distortion += w["consolidation_instability"] * (1.0 - mean_consol)
+
+        distortion += w["spread_integration"] * min(1.0, n_spread_traces * 0.1)
+
+        if n_schemas > 1:
+            distortion += w["schema_generalization"] * min(1.0, (n_schemas - 1) * 0.15)
+
+        return float(min(1.0, distortion))

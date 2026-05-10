@@ -5,79 +5,36 @@ from typing import Optional
 
 
 class Config:
-    """
-    NeuroCortex configuration.
+    LLM_BASE_URL: str = os.environ.get("NEURO_LLM_BASE_URL", "http://localhost:11434")
+    LLM_MODEL: str = os.environ.get("NEURO_LLM_MODEL", "llama3.2")
+    EMBEDDING_MODEL: str = os.environ.get("NEURO_EMBEDDING_MODEL", "nomic-embed-text")
+    API_TYPE: str = os.environ.get("NEURO_API_TYPE", "ollama")
+    API_KEY: Optional[str] = os.environ.get("NEURO_API_KEY", None)
+    LLM_TIMEOUT: float = float(os.environ.get("NEURO_LLM_TIMEOUT", "60.0"))
 
-    All settings can be overridden via environment variables
-    with the NEURO_ prefix.
-    """
+    EPSILON: float = float(os.environ.get("NEURO_EPSILON", "0.3"))
+    WORKING_MEMORY_CAPACITY: int = int(os.environ.get("NEURO_WORKING_MEMORY_CAPACITY", "7"))
+    MAX_TRACES: int = int(os.environ.get("NEURO_MAX_TRACES", "10000"))
+    DECAY_THRESHOLD: float = float(os.environ.get("NEURO_DECAY_THRESHOLD", "0.01"))
 
-    def __init__(self):
-        self.llm_base_url = os.getenv("NEURO_LLM_BASE_URL", "http://localhost:11434")
-        self.llm_model = os.getenv("NEURO_LLM_MODEL", "qwen2.5:7b")
-        self.llm_api_type = os.getenv("NEURO_LLM_API_TYPE", "ollama")
-        self.llm_embedding_model = os.getenv("NEURO_LLM_EMBEDDING_MODEL", "")
+    CONSOLIDATION_THRESHOLD: float = float(os.environ.get("NEURO_CONSOLIDATION_THRESHOLD", "0.3"))
+    MAX_CONSOLIDATION_PER_CYCLE: int = int(os.environ.get("NEURO_MAX_CONSOLIDATION_PER_CYCLE", "50"))
 
-        self.embedding_dim = int(os.getenv("NEURO_EMBEDDING_DIM", "768"))
+    SPREAD_DEPTH: int = int(os.environ.get("NEURO_SPREAD_DEPTH", "2"))
+    ACTIVATION_THRESHOLD: float = float(os.environ.get("NEURO_ACTIVATION_THRESHOLD", "0.15"))
+    ALPHA_FULL: float = float(os.environ.get("NEURO_ALPHA_FULL", "0.7"))
+    ALPHA_GIST: float = float(os.environ.get("NEURO_ALPHA_GIST", "0.3"))
 
-        self.consolidation_interval = int(os.getenv("NEURO_CONSOLIDATION_INTERVAL", "10"))
+    MERGE_SIMILARITY_THRESHOLD: float = float(os.environ.get("NEURO_MERGE_SIMILARITY_THRESHOLD", "0.75"))
 
-        self.data_dir = os.getenv("NEURO_DATA_DIR", "./neurocortex_data")
+    EMOTIONAL_WEIGHT: float = float(os.environ.get("NEURO_EMOTIONAL_WEIGHT", "0.35"))
+    NOVELTY_WEIGHT: float = float(os.environ.get("NEURO_NOVELTY_WEIGHT", "0.25"))
+    SOCIAL_WEIGHT: float = float(os.environ.get("NEURO_SOCIAL_WEIGHT", "0.15"))
+    GOAL_WEIGHT: float = float(os.environ.get("NEURO_GOAL_WEIGHT", "0.25"))
 
-        self.system_identity = os.getenv(
-            "NEURO_SYSTEM_IDENTITY",
-            "你是一个具有类脑记忆系统的智能体，部署在机器人上。"
-            "你像人脑一样记忆和回忆——记住对话的过程和情感，"
-            "而不是死记硬背答案。",
-        )
+    SERVER_HOST: str = os.environ.get("NEURO_SERVER_HOST", "0.0.0.0")
+    SERVER_PORT: int = int(os.environ.get("NEURO_SERVER_PORT", "8000"))
 
-        self.server_host = os.getenv("NEURO_SERVER_HOST", "0.0.0.0")
-        self.server_port = int(os.getenv("NEURO_SERVER_PORT", "8900"))
+    STATE_DIR: str = os.environ.get("NEURO_STATE_DIR", "/tmp/neurocortex_state")
 
-        self.log_level = os.getenv("NEURO_LOG_LEVEL", "INFO")
-
-        self.hippocampus_max_traces = int(os.getenv("NEURO_HIPPOCAMPUS_MAX_TRACES", "10000"))
-        self.hippocampus_pattern_separation = float(
-            os.getenv("NEURO_HIPPOCAMPUS_PATTERN_SEPARATION", "0.3")
-        )
-        self.hippocampus_ca3_recurrent = float(
-            os.getenv("NEURO_HIPPOCAMPUS_CA3_RECURRENT", "0.6")
-        )
-
-        self.neocortex_max_schemas = int(os.getenv("NEURO_NEOCORTEX_MAX_SCHEMAS", "5000"))
-        self.neocortex_merge_threshold = float(
-            os.getenv("NEURO_NEOCORTEX_MERGE_THRESHOLD", "0.75")
-        )
-
-        self.prefrontal_capacity = int(os.getenv("NEURO_PREFRONTAL_CAPACITY", "7"))
-
-        self.amygdala_emotional_weight = float(
-            os.getenv("NEURO_AMYGDALA_EMOTIONAL_WEIGHT", "0.4")
-        )
-        self.amygdala_novelty_weight = float(
-            os.getenv("NEURO_AMYGDALA_NOVELTY_WEIGHT", "0.3")
-        )
-
-        self.recall_cue_threshold = float(os.getenv("NEURO_RECALL_CUE_THRESHOLD", "0.15"))
-        self.recall_temperature = float(os.getenv("NEURO_RECALL_TEMPERATURE", "0.7"))
-        self.recall_distortion_sensitivity = float(
-            os.getenv("NEURO_RECALL_DISTORTION_SENSITIVITY", "0.3")
-        )
-
-        self.consolidation_batch_size = int(os.getenv("NEURO_CONSOLIDATION_BATCH", "5"))
-        self.consolidation_temperature = float(
-            os.getenv("NEURO_CONSOLIDATION_TEMPERATURE", "0.3")
-        )
-
-    def to_dict(self) -> dict:
-        return {
-            "llm_base_url": self.llm_base_url,
-            "llm_model": self.llm_model,
-            "llm_api_type": self.llm_api_type,
-            "embedding_dim": self.embedding_dim,
-            "consolidation_interval": self.consolidation_interval,
-            "data_dir": self.data_dir,
-            "server_host": self.server_host,
-            "server_port": self.server_port,
-            "log_level": self.log_level,
-        }
+    LOG_LEVEL: str = os.environ.get("NEURO_LOG_LEVEL", "INFO")

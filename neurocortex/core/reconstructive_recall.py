@@ -5,443 +5,263 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .hippocampus import Hippocampus
-from .memory_trace import EpisodicTrace, ReconstructedMemory, SemanticSchema
-from .neocortex import Neocortex
+from neurocortex.core.hippocampus import Hippocampus
+from neurocortex.core.llm_engine import LLMEngine
+from neurocortex.core.memory_trace import EpisodicTrace, ReconstructedMemory, SemanticSchema
+from neurocortex.core.neocortex import Neocortex
+from neurocortex.core.theory import (
+    ReconstructiveDistortionBound,
+    SchacterSinsMapping,
+    SeparationCompletionDuality,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class ReconstructiveRecall:
-    """
-    INNOVATION 1: Fragment-Level Reconstructive Recall with Variable Detail
-
-    This is the CORE innovation of NeuroCortex, formally defined as:
-
-    R(q) = LLM(q, {frag(e_i)}, {schema_j})
-
-    where frag(e_i) produces fragments at VARIABLE detail levels:
-      - FULL: complete content (when activation * importance > alpha_full)
-      - GIST: compressed summary (when activation * importance > alpha_gist)
-      - KEYWORD: key words only (when activation * importance <= alpha_gist)
-
-    Differentiation from existing work:
-    - RAG: R_RAG(q) = {e_i | sim(q, e_i) > theta} (retrieval, no reconstruction)
-    - True Memory (Adler & Zehavi, 2026): mentions "reconstructive recall" but
-      implements verbatim preservation + retrieval pipeline, not fragment reconstruction
-    - E-mem (Wang et al., ICML 2026): multi-agent context reasoning, not fragment
-      assembly with variable detail levels
-    - CA3Mem (Zhang et al., AAAI 2026): trajectory recombination for GVAs, not
-      conversational memory fragment reconstruction
-
-    The VARIABLE DETAIL LEVEL mechanism is entirely novel. It models the
-    vividness gradient in human recall: strongly activated memories are recalled
-    in full detail, while weakly activated ones produce only vague impressions.
-    This directly implements Bartlett's (1932) reconstructive memory theory.
-    """
-
     def __init__(
         self,
-        cue_activation_threshold: float = 0.15,
-        max_cue_traces: int = 7,
-        max_cue_schemas: int = 3,
-        reconstruction_temperature: float = 0.7,
+        hippocampus: Hippocampus,
+        neocortex: Neocortex,
+        llm_engine: LLMEngine,
+        spread_depth: int = 2,
+        activation_threshold: float = 0.15,
         alpha_full: float = 0.7,
         alpha_gist: float = 0.3,
-        distortion_weights: Optional[Dict[str, float]] = None,
     ):
-        self.cue_activation_threshold = cue_activation_threshold
-        self.max_cue_traces = max_cue_traces
-        self.max_cue_schemas = max_cue_schemas
-        self.reconstruction_temperature = reconstruction_temperature
+        self.hippocampus = hippocampus
+        self.neocortex = neocortex
+        self.llm_engine = llm_engine
+        self.spread_depth = spread_depth
+        self.activation_threshold = activation_threshold
         self.alpha_full = alpha_full
         self.alpha_gist = alpha_gist
-
-        self.distortion_weights = distortion_weights or {
-            "activation_gap": 0.30,
-            "spread_integration": 0.20,
-            "schema_generalization": 0.25,
-            "consolidation_instability": 0.25,
-        }
 
     async def recall(
         self,
         query: str,
-        query_embedding,
-        hippocampus: Hippocampus,
-        neocortex: Neocortex,
-        llm_engine=None,
-        emotional_valence: float = 0.0,
-        current_context: str = "",
-        neuromodulatory_state=None,
+        query_embedding: np.ndarray,
+        top_k: int = 5,
+        lambda_param: Optional[float] = None,
     ) -> ReconstructedMemory:
-        """
-        Perform reconstructive recall following the formal definition:
-
-        Step 1: A(q) = {e_i | sim(emb(q), emb(e_i)) * strength(e_i) > theta}
-        Step 2: A'(q) = A(q) U spread(A(q))
-        Step 3: detail(e_i) = f(alpha_i) where alpha_i = activation * importance * emotion
-        Step 4: R(q) = LLM(q, {frag(e_i)}, {schema_j})
-        Step 5: D(R(q)) = distortion metric
-        """
-        # Step 1: Cue-driven hippocampal retrieval
-        episodic_cues = hippocampus.retrieve_by_cue(
-            query_embedding,
-            top_k=self.max_cue_traces,
-            min_strength=self.cue_activation_threshold,
+        cue_results = self.hippocampus.retrieve_by_cue(
+            query_embedding, top_k=top_k, min_similarity=0.2, lambda_param=lambda_param
         )
 
-        # Step 2: CA3 spreading activation
-        seed_ids = [trace.trace_id for trace, _ in episodic_cues]
-        spread_activations = hippocampus.spread_activation(
-            seed_ids, depth=2, decay=0.5
-        )
-
-        spread_traces = []
-        for trace_id, activation in spread_activations.items():
-            if activation >= self.cue_activation_threshold * 0.5:
-                trace = hippocampus.get_trace(trace_id)
-                if trace and trace.trace_id not in seed_ids:
-                    spread_traces.append((trace, activation))
-
-        # Step 3: Neocortical schema retrieval
-        schema_cues = neocortex.retrieve_relevant(
-            query_embedding,
-            top_k=self.max_cue_schemas,
-        )
-
-        # Step 4: Fragment assembly with VARIABLE DETAIL LEVELS (NOVEL)
-        fragments = self._assemble_fragments(
-            episodic_cues=episodic_cues,
-            spread_traces=spread_traces,
-            schema_cues=schema_cues,
-            emotional_valence=emotional_valence,
-            neuromodulatory_state=neuromodulatory_state,
-        )
-
-        # Step 5: LLM reconstruction from fragments (NOVEL)
-        if llm_engine and fragments["episodic"]:
-            reconstructed_narrative = await self._llm_reconstruct(
+        if not cue_results:
+            return ReconstructedMemory(
                 query=query,
-                fragments=fragments,
-                current_context=current_context,
-                llm_engine=llm_engine,
-            )
-        else:
-            reconstructed_narrative = self._fallback_reconstruct(
-                query, fragments
+                reconstructed_narrative="",
+                confidence=0.0,
+                distortion_score=1.0,
             )
 
-        # Step 6: Compute confidence and distortion (INNOVATION 4)
-        confidence = self._compute_confidence(episodic_cues, schema_cues)
-        distortion = self._compute_distortion(
-            episodic_cues=episodic_cues,
-            spread_traces=spread_traces,
-            schema_cues=schema_cues,
+        seed_ids = [trace.trace_id for trace, _ in cue_results]
+        activations = self.hippocampus.spread_activation(
+            seed_ids, depth=self.spread_depth, activation_threshold=self.activation_threshold
         )
 
-        source_traces = [t.trace_id for t, _ in episodic_cues]
-        source_traces += [t.trace_id for t, _ in spread_traces]
-        source_schemas = [s.schema_id for s, _ in schema_cues]
+        activated_traces = []
+        activation_values = []
+        for trace_id, activation in activations.items():
+            trace = self.hippocampus.traces.get(trace_id)
+            if trace is not None:
+                activated_traces.append(trace)
+                activation_values.append(activation)
+                trace.reactivate()
 
-        memory = ReconstructedMemory(
+        schema_results = self.neocortex.retrieve_relevant(query_embedding, top_k=3)
+        relevant_schemas = [schema for schema, _ in schema_results]
+
+        fragments = self._assemble_fragments(activated_traces, activation_values)
+
+        distortion_score = self._compute_dual_channel_distortion(
+            query_embedding, activated_traces, relevant_schemas, lambda_param
+        )
+
+        schacter_sins = self._compute_schacter_sins(activated_traces, relevant_schemas)
+
+        reconstructed_narrative = await self._llm_reconstruct(
+            query, fragments, relevant_schemas
+        )
+
+        confidence = self._compute_confidence(activation_values, relevant_schemas)
+        emotional_tone = self._compute_emotional_tone(activated_traces)
+
+        return ReconstructedMemory(
             query=query,
             reconstructed_narrative=reconstructed_narrative,
-            source_traces=source_traces,
-            source_schemas=source_schemas,
+            source_traces=[t.trace_id for t in activated_traces],
+            source_schemas=[s.schema_id for s in relevant_schemas],
             confidence=confidence,
-            distortion_score=distortion,
-            emotional_tone=emotional_valence,
+            distortion_score=distortion_score,
+            emotional_tone=emotional_tone,
         )
 
-        logger.info(
-            f"Reconstructive recall: {len(source_traces)} traces, "
-            f"{len(source_schemas)} schemas, confidence={confidence:.2f}, "
-            f"distortion={distortion:.2f}"
+    def _compute_dual_channel_distortion(
+        self,
+        query_embedding: np.ndarray,
+        activated_traces: List[EpisodicTrace],
+        relevant_schemas: List[SemanticSchema],
+        lambda_param: Optional[float] = None,
+    ) -> float:
+        if not activated_traces:
+            return 1.0
+
+        activations = [t.memory_strength for t in activated_traces]
+        consolidation_levels = [t.consolidation_level for t in activated_traces]
+        n_spread = max(0, len(activated_traces) - 1)
+        n_schemas = len(relevant_schemas)
+
+        content_distortion = SchacterSinsMapping.compute_distortion(
+            activations=activations,
+            consolidation_levels=consolidation_levels,
+            n_spread_traces=n_spread,
+            n_schemas=n_schemas,
         )
 
-        return memory
+        lam = lambda_param if lambda_param is not None else self.hippocampus.bam.lambda_param
+        sparsity_ratio = self.hippocampus.bam.sparsity_ratio
+
+        combined_bound = ReconstructiveDistortionBound.compute_combined_distortion(
+            content_distortion=content_distortion,
+            barcode_distortion=content_distortion * 0.1,
+            lambda_param=lam,
+            sparsity_ratio=sparsity_ratio,
+        )
+
+        return float(min(1.0, combined_bound))
 
     def _assemble_fragments(
         self,
-        episodic_cues: List[Tuple[EpisodicTrace, float]],
-        spread_traces: List[Tuple[EpisodicTrace, float]],
-        schema_cues: List[Tuple[SemanticSchema, float]],
-        emotional_valence: float,
-        neuromodulatory_state=None,
-    ) -> Dict[str, List]:
-        """
-        Assemble memory fragments with VARIABLE DETAIL LEVELS.
+        traces: List[EpisodicTrace],
+        activations: List[float],
+    ) -> List[Dict]:
+        fragments = []
+        for trace, activation in zip(traces, activations):
+            detail_level = SchacterSinsMapping.compute_fragment_detail(
+                activation=activation,
+                importance=trace.importance,
+                emotional_valence=trace.emotional_valence,
+                alpha_full=self.alpha_full,
+                alpha_gist=self.alpha_gist,
+            )
 
-        This is the key novel mechanism: each activated trace produces
-        a fragment at a detail level determined by its combined activation:
-
-          alpha_i = activation_i * (1 + importance_i) * (1 + |emotion_i|)
-
-          detail(e_i) = FULL    if alpha_i > alpha_full  (0.7)
-          detail(e_i) = GIST    if alpha_i > alpha_gist  (0.3)
-          detail(e_i) = KEYWORD otherwise
-
-        This models the vividness gradient in human recall:
-        - Vivid recall (flashbulb memory): full detail
-        - Normal recall: gist only
-        - Vague impression: just keywords
-        """
-        fragments = {
-            "episodic": [],
-            "spread": [],
-            "semantic": [],
-        }
-
-        ne_gate = 1.0
-        if neuromodulatory_state is not None:
-            ne_gate = 0.5 + 0.5 * neuromodulatory_state.norepinephrine
-
-        for trace, activation in episodic_cues:
-            importance_mod = 1.0 + trace.importance * 0.5
-            emotional_mod = 1.0 + abs(trace.emotional_valence) * 0.3
-            precision_mod = ne_gate
-
-            alpha = activation * importance_mod * emotional_mod * precision_mod
-
-            fragment_detail = self._determine_fragment_detail(alpha)
-
-            if fragment_detail == "full":
-                content = trace.content
-            elif fragment_detail == "gist":
-                content = trace.compressed_gist or self._extract_gist(trace.content)
+            if detail_level == "full":
+                fragment_content = trace.content
+            elif detail_level == "gist":
+                fragment_content = self._extract_gist(trace.content)
             else:
-                content = self._extract_keywords(trace.content)
+                fragment_content = self._extract_keywords(trace.content)
 
-            fragments["episodic"].append({
-                "content": content,
-                "detail_level": fragment_detail,
-                "activation": float(activation),
+            fragments.append({
+                "trace_id": trace.trace_id,
+                "content": fragment_content,
+                "detail_level": detail_level,
+                "activation": activation,
                 "importance": trace.importance,
                 "emotional_valence": trace.emotional_valence,
-                "source": trace.source,
                 "timestamp": trace.timestamp.isoformat(),
-                "alpha": float(alpha),
-                "consolidation_level": trace.consolidation_level,
-            })
-
-        for trace, activation in spread_traces:
-            alpha = activation * (1.0 + trace.importance * 0.3)
-            detail = "gist" if alpha > self.alpha_gist else "keyword"
-            content = self._extract_gist(trace.content) if detail == "gist" else self._extract_keywords(trace.content)
-
-            fragments["spread"].append({
-                "content": content,
-                "detail_level": detail,
-                "activation": float(activation),
-                "alpha": float(alpha),
-            })
-
-        for schema, score in schema_cues:
-            fragments["semantic"].append({
-                "gist": schema.gist,
-                "confidence": schema.confidence,
-                "key_entities": schema.key_entities,
-                "abstract_concepts": schema.abstract_concepts,
-                "activation": float(score),
-                "maturity": schema.maturity,
             })
 
         return fragments
 
-    def _determine_fragment_detail(self, alpha: float) -> str:
-        """
-        Determine fragment detail level based on combined activation alpha.
+    def _compute_schacter_sins(
+        self,
+        traces: List[EpisodicTrace],
+        schemas: List[SemanticSchema],
+    ) -> Dict[str, float]:
+        if not traces:
+            return {}
 
-        This implements the formal definition:
-          detail = FULL    if alpha > alpha_full
-          detail = GIST    if alpha > alpha_gist
-          detail = KEYWORD otherwise
+        from datetime import datetime, timezone
 
-        The thresholds are neurobiologically motivated:
-        - alpha_full (0.7): Strong activation + high importance + emotional
-          significance → vivid, detailed recall (like flashbulb memories)
-        - alpha_gist (0.3): Moderate activation → gist-level recall
-          (like remembering the main point of a conversation)
-        - Below alpha_gist: Weak activation → only vague keywords
-          (like having a "feeling of knowing" without specific details)
-        """
-        if alpha > self.alpha_full:
-            return "full"
-        elif alpha > self.alpha_gist:
-            return "gist"
-        else:
-            return "keyword"
+        avg_age = np.mean([
+            (datetime.now(timezone.utc) - t.timestamp).total_seconds() / 3600.0
+            for t in traces
+        ])
+        avg_decay = np.mean([t.decay_rate for t in traces])
+        avg_activation = np.mean([t.memory_strength for t in traces])
+        avg_emotion = np.mean([t.emotional_valence for t in traces])
+        avg_importance = np.mean([t.importance for t in traces])
+
+        return SchacterSinsMapping.compute_schacter_sins(
+            trace_age_hours=avg_age,
+            decay_rate=avg_decay,
+            encoding_gate=1.0,
+            activation=avg_activation,
+            detail_level="full",
+            n_spread=max(0, len(traces) - 1),
+            n_schemas=len(schemas),
+            emotional_valence=avg_emotion,
+            importance=avg_importance,
+        )
 
     async def _llm_reconstruct(
         self,
         query: str,
-        fragments: Dict[str, List],
-        current_context: str,
-        llm_engine,
+        fragments: List[Dict],
+        schemas: List[SemanticSchema],
     ) -> str:
-        """
-        LLM reconstruction from fragments.
+        fragment_text = "\n".join(
+            f"[{f['detail_level'].upper()}] (activation={f['activation']:.2f}): {f['content']}"
+            for f in fragments
+        )
 
-        This is the key step that makes recall RECONSTRUCTIVE rather than
-        REPRODUCTIVE. The LLM receives fragments (not complete documents)
-        and must reconstruct a coherent narrative, just as humans reconstruct
-        memories from partial cues.
-
-        The reconstruction prompt explicitly instructs the LLM to:
-        1. Not simply repeat the fragments verbatim
-        2. Integrate related fragments into a coherent narrative
-        3. Acknowledge uncertainty where details are missing
-        4. Emphasize emotionally significant content
-        5. Not fabricate information beyond what the fragments provide
-        """
-        fragment_text = self._format_fragments_for_llm(fragments)
+        schema_text = "\n".join(
+            f"Schema (confidence={s.confidence:.2f}): {s.gist}"
+            for s in schemas
+        )
 
         prompt = (
-            "你正在从自己的记忆中回忆信息。这不是检索文档，而是像人脑一样"
-            "从记忆碎片中重建回忆。以下是你被激活的记忆片段：\n\n"
-            f"{fragment_text}\n\n"
-            f"当前对话语境：{current_context}\n\n"
-            f"关于这个问题：{query}\n\n"
-            "请基于这些记忆碎片重建你的回忆。注意：\n"
-            "1. 你不是在复述原文，而是在回忆——像人一样，回忆可能不完整\n"
-            "2. 将相关的记忆片段整合成一个连贯的叙述\n"
-            "3. 如果某些细节模糊，用你的理解来填补，但要标注不确定的部分\n"
-            "4. 情感色彩较强的记忆应该更突出\n"
-            "5. 只输出你回忆起来的内容，不要添加你不知道的信息\n\n"
-            "你的回忆："
+            f"Based on the following memory fragments and schemas, reconstruct a coherent "
+            f"response to the query: '{query}'\n\n"
+            f"Memory Fragments:\n{fragment_text}\n\n"
+            f"Relevant Schemas:\n{schema_text}\n\n"
+            f"Reconstruct the memory, filling in gaps naturally while staying faithful "
+            f"to the available evidence. Note which parts are reconstructed vs. directly recalled."
         )
 
-        response = await llm_engine.generate(
-            prompt=prompt,
-            temperature=self.reconstruction_temperature,
-            max_tokens=500,
-        )
+        try:
+            return await self.llm_engine.generate(prompt, max_tokens=512, temperature=0.5)
+        except Exception as e:
+            logger.error(f"LLM reconstruction failed: {e}")
+            return " ".join(f["content"] for f in fragments)
 
-        return response
-
-    def _fallback_reconstruct(
-        self, query: str, fragments: Dict[str, List]
-    ) -> str:
-        parts = []
-        for frag in fragments.get("episodic", []):
-            parts.append(frag["content"])
-        for frag in fragments.get("semantic", []):
-            parts.append(frag["gist"])
-        return "；".join(parts) if parts else "我对此没有清晰的记忆。"
-
-    def _format_fragments_for_llm(self, fragments: Dict[str, List]) -> str:
-        lines = []
-
-        lines.append("【情景记忆片段】")
-        for i, frag in enumerate(fragments.get("episodic", []), 1):
-            detail = frag["detail_level"]
-            detail_desc = {"full": "完整回忆", "gist": "大致印象", "keyword": "模糊感觉"}
-            lines.append(
-                f"  片段{i}（{detail_desc.get(detail, detail)}，"
-                f"强度{frag['activation']:.2f}，alpha={frag.get('alpha', 0):.2f}）："
-                f"{frag['content']}"
-            )
-            if frag.get("emotional_valence", 0) != 0:
-                lines.append(f"    情感标记：{frag['emotional_valence']:.1f}")
-
-        if fragments.get("spread"):
-            lines.append("\n【联想激活片段】")
-            for i, frag in enumerate(fragments.get("spread", []), 1):
-                lines.append(
-                    f"  联想{i}（{frag['detail_level']}级回忆，"
-                    f"强度{frag['activation']:.2f}）："
-                    f"{frag['content']}"
-                )
-
-        if fragments.get("semantic"):
-            lines.append("\n【语义知识】")
-            for i, frag in enumerate(fragments.get("semantic", []), 1):
-                lines.append(
-                    f"  知识{i}（置信度{frag['confidence']:.2f}，"
-                    f"成熟度{frag.get('maturity', 0):.2f}）：{frag['gist']}"
-                )
-                if frag.get("key_entities"):
-                    lines.append(f"    关键实体：{', '.join(frag['key_entities'])}")
-
-        return "\n".join(lines)
-
-    def _compute_confidence(
-        self,
-        episodic_cues: List[Tuple[EpisodicTrace, float]],
-        schema_cues: List[Tuple[SemanticSchema, float]],
-    ) -> float:
-        if not episodic_cues and not schema_cues:
-            return 0.0
-
-        ep_conf = 0.0
-        if episodic_cues:
-            ep_conf = float(np.mean([a for _, a in episodic_cues]))
-
-        sc_conf = 0.0
-        if schema_cues:
-            sc_conf = float(np.mean([s.confidence * a for s, a in schema_cues]))
-
-        if episodic_cues and schema_cues:
-            return float(0.6 * ep_conf + 0.4 * sc_conf)
-        elif episodic_cues:
-            return float(ep_conf)
-        else:
-            return float(sc_conf)
-
-    def _compute_distortion(
-        self,
-        episodic_cues: List[Tuple[EpisodicTrace, float]],
-        spread_traces: List[Tuple[EpisodicTrace, float]],
-        schema_cues: List[Tuple[SemanticSchema, float]],
-    ) -> float:
-        """
-        INNOVATION 4: Memory Distortion Quantification
-
-        Formal definition:
-          D(R(q)) = w1 * (1 - mean_activation)   [activation gap: more gap-filling needed]
-                  + w2 * |spread| * scale          [integration: more traces merged]
-                  + w3 * (|S| - 1) * scale          [generalization: more schemas merged]
-                  + w4 * (1 - mean_consolidation)    [instability: less consolidated = more distortion]
-
-        This metric quantifies how much a reconstructed memory may differ
-        from the original experience. Higher distortion occurs when:
-        1. Source traces have low activation (more gap-filling by LLM)
-        2. Many spread activation traces are integrated (more blending)
-        3. Multiple schemas are merged (more generalization)
-        4. Source traces are not well consolidated (less stable memories)
-
-        No existing LLM memory system quantifies memory distortion.
-        """
-        w = self.distortion_weights
-        distortion = 0.0
-
-        if episodic_cues:
-            avg_activation = float(np.mean([a for _, a in episodic_cues]))
-            distortion += w["activation_gap"] * (1.0 - avg_activation)
-
-            avg_consolidation = float(np.mean([t.consolidation_level for t, _ in episodic_cues]))
-            distortion += w["consolidation_instability"] * (1.0 - avg_consolidation)
-
-        distortion += w["spread_integration"] * min(1.0, len(spread_traces) * 0.1)
-
-        if len(schema_cues) > 1:
-            distortion += w["schema_generalization"] * min(1.0, (len(schema_cues) - 1) * 0.15)
-
-        return float(min(1.0, distortion))
-
-    def _extract_gist(self, content: str, max_length: int = 100) -> str:
-        if len(content) <= max_length:
+    @staticmethod
+    def _extract_gist(content: str) -> str:
+        sentences = content.split(". ")
+        if len(sentences) <= 2:
             return content
-        sentences = content.replace("。", "。\n").replace("！", "！\n").replace("？", "？\n").split("\n")
-        gist = sentences[0]
-        for s in sentences[1:]:
-            if len(gist) + len(s) <= max_length:
-                gist += s
-            else:
-                break
-        return gist
+        return ". ".join(sentences[:2]) + ("." if not sentences[1].endswith(".") else "")
 
-    def _extract_keywords(self, content: str, max_words: int = 10) -> str:
+    @staticmethod
+    def _extract_keywords(content: str) -> str:
         words = content.split()
-        return " ".join(words[:max_words])
+        stop_words = {"the", "a", "an", "is", "was", "are", "were", "be", "been", "being",
+                      "have", "has", "had", "do", "does", "did", "will", "would", "could",
+                      "should", "may", "might", "shall", "can", "to", "of", "in", "for",
+                      "on", "with", "at", "by", "from", "as", "into", "through", "during",
+                      "before", "after", "above", "below", "between", "and", "but", "or",
+                      "not", "no", "nor", "so", "yet", "both", "either", "neither", "each",
+                      "every", "all", "any", "few", "more", "most", "other", "some", "such",
+                      "than", "too", "very", "just", "because", "if", "when", "where", "how",
+                      "what", "which", "who", "whom", "this", "that", "these", "those", "it",
+                      "its", "i", "me", "my", "we", "our", "you", "your", "he", "him", "his",
+                      "she", "her", "they", "them", "their"}
+        keywords = [w for w in words if w.lower() not in stop_words and len(w) > 2]
+        return " ".join(keywords[:15])
+
+    @staticmethod
+    def _compute_confidence(activations: List[float], schemas: List[SemanticSchema]) -> float:
+        if not activations:
+            return 0.0
+        act_confidence = float(np.mean(activations))
+        schema_confidence = float(np.mean([s.confidence for s in schemas])) if schemas else 0.5
+        return float(0.7 * act_confidence + 0.3 * schema_confidence)
+
+    @staticmethod
+    def _compute_emotional_tone(traces: List[EpisodicTrace]) -> float:
+        if not traces:
+            return 0.0
+        return float(np.mean([t.emotional_valence for t in traces]))
