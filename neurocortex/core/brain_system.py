@@ -185,6 +185,7 @@ class BrainSystem:
             llm_engine=self.llm_engine,
             emotional_valence=emotional_valence,
             current_context=self.prefrontal.get_relevant_context(user_message),
+            neuromodulatory_state=self.basal_forebrain.state,
         )
 
         # === PHASE 5: Working Memory Update ===

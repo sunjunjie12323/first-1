@@ -12,23 +12,40 @@ logger = logging.getLogger(__name__)
 
 class BasalForebrain:
     """
-    Basal Forebrain-inspired neuromodulatory control module.
+    INNOVATION 2: Four-Transmitter Neuromodulatory State Machine
 
-    Implements artificial neuromodulatory signals that gate
-    information flow between brain regions, inspired by the
-    cholinergic and dopaminergic systems:
+    Implements a dynamic neuromodulatory state machine with four
+    artificial neurotransmitters that jointly gate memory encoding,
+    consolidation, social processing, and encoding precision.
 
-    - Acetylcholine (ACh): Signals novelty → promotes new encoding
-      in the hippocampus. High ACh = more new memories stored.
-    - Dopamine (DA): Signals reward/success → promotes consolidation
-      of rewarded experiences. High DA = stronger consolidation.
-    - Serotonin (5-HT): Modulates social memory importance.
-    - Norepinephrine (NE): Controls arousal level → affects
-      encoding precision and attention.
+    Formal definition:
+      State vector: M(t) = [ACh(t), DA(t), 5-HT(t), NE(t)]
 
-    Innovation: These neuromodulators create a dynamic, context-sensitive
-    gating mechanism that determines WHEN and HOW STRONGLY memories
-    are formed - a principle absent from all existing LLM memory systems.
+      Update rules:
+        ACh(t+1) = ACh(t) * lambda + novelty(x_t, E) * (1 - lambda)
+        DA(t+1)  = DA(t)  * lambda + reward(feedback_t) * (1 - lambda)
+        5-HT(t+1) = 5-HT(t) * lambda + social(x_t) * (1 - lambda)
+        NE(t+1)  = NE(t)  * lambda + arousal(novelty, emotion) * (1 - lambda)
+
+      Gating functions:
+        G_encode(t)      = 0.3 + 0.7 * ACh(t)    [what to encode]
+        G_consolidate(t)  = 0.2 + 0.8 * DA(t)     [what to consolidate]
+        G_social(t)       = 0.5 + 0.5 * 5-HT(t)   [social memory weight]
+        G_precision(t)    = 0.5 + 0.5 * NE(t)     [encoding precision]
+
+    Key insight: ACh and DA have COMPLEMENTARY roles:
+      - High ACh + Low DA  = new encoding mode (hippocampus active)
+      - Low ACh + High DA  = consolidation mode (neocortex active)
+      This mirrors Hasselmo (1999) and recent findings by
+      Zhang et al. (2025, Nature Neuroscience).
+
+    Differentiation from existing work:
+      - ZenBrain (NeurIPS'25): Emotional valence tagging only (1 dimension)
+      - True Memory (2026): 3-signal encoding gate (novelty, salience,
+        prediction error) but no dynamic state machine, no consolidation
+        gating, no social modulation
+      - Pirazzini & Ursino (2025): Computational ACh model for hippocampus
+        but not applied to LLM agents, no DA/5-HT/NE integration
     """
 
     def __init__(

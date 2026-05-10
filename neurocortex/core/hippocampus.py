@@ -14,15 +14,33 @@ class Hippocampus:
     """
     Hippocampus-inspired episodic memory module.
 
-    Implements two key computational principles:
-    1. Dentate Gyrus (DG) pattern separation: similar inputs produce
-       distinct representations to avoid interference.
-    2. CA3 autoassociative recall: partial cues can retrieve complete
-       episodic traces through spreading activation.
+    INNOVATION 3: Dentate Gyrus Adaptive Pattern Separation
 
-    Unlike RAG systems that retrieve exact documents, the hippocampus
-    performs associative retrieval that naturally supports reconstructive
-    recall in downstream processing.
+    Implements two key computational principles:
+    1. DG pattern separation (INNOVATION): similar inputs produce
+       distinct representations through adaptive noise injection,
+       where noise magnitude is proportional to max similarity to
+       existing traces.
+
+       Formal definition:
+         x' = x + epsilon * max_sim(x, W) * N(0, I)
+         x' = x' / ||x'|| * ||x||
+
+       Properties:
+       - Low max_sim (novel input): minimal noise, x' approx x
+       - High max_sim (similar to existing): strong noise, x' pushed apart
+       - Adaptive: separation strength scales with similarity
+
+       Differentiation from:
+       - HeLa-Mem (Zhu et al., 2026): Hebbian learning strengthens connections;
+         pattern separation is the OPPOSITE: makes similar inputs MORE distinct
+       - CA3Mem (Zhang et al., AAAI 2026): CA3 autoassociation; DG separation
+         is the COMPLEMENT that happens BEFORE CA3 recall
+       - Standard vector DB: no pattern separation at all
+
+    2. CA3 autoassociative recall: partial cues can retrieve complete
+       episodic traces through spreading activation (not claimed as novel;
+       see HeLa-Mem, CA3Mem for similar mechanisms).
     """
 
     def __init__(
@@ -225,10 +243,28 @@ class Hippocampus:
 
     def _pattern_separation(self, embedding: np.ndarray) -> np.ndarray:
         """
-        Dentate Gyrus pattern separation: add controlled noise to
-        similar inputs to create distinct representations.
-        The strength of separation adapts to the input's similarity
-        to existing traces.
+        INNOVATION 3: Dentate Gyrus Adaptive Pattern Separation
+
+        Formal definition:
+          x' = x + epsilon * max_sim(x, W) * N(0, I)
+          x' = x' / ||x'|| * ||x||
+
+        where:
+          - x: input embedding
+          - W: existing embeddings matrix
+          - epsilon: pattern_separation_strength (hyperparameter)
+          - max_sim(x, W): maximum cosine similarity to existing traces
+          - N(0, I): standard Gaussian noise
+
+        Key property: The separation is ADAPTIVE. When the input is highly
+        similar to existing traces (max_sim close to 1), the noise is strong,
+        pushing the representation apart. When the input is novel (max_sim
+        close to 0), the noise is minimal, preserving the original signal.
+
+        This is fundamentally different from:
+        - HeLa-Mem's Hebbian learning: strengthens connections (convergent)
+        - Our DG separation: pushes similar inputs apart (divergent)
+        These are complementary operations, not competing ones.
         """
         if self._embeddings_matrix is None or len(self._traces) == 0:
             return embedding.copy()
@@ -238,9 +274,14 @@ class Hippocampus:
             return embedding.copy()
 
         normalized = embedding / norm
-        sims = self._embeddings_matrix @ normalized
 
-        max_sim = float(np.max(np.abs(sims)))
+        mat_norms = np.linalg.norm(self._embeddings_matrix, axis=1, keepdims=True)
+        mat_norms = np.maximum(mat_norms, 1e-8)
+        normalized_matrix = self._embeddings_matrix / mat_norms
+
+        sims = normalized_matrix @ normalized
+
+        max_sim = float(np.max(sims))
 
         separation_noise = np.random.randn(len(embedding)) * self.pattern_separation_strength
         separation_noise *= max_sim
